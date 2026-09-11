@@ -21,6 +21,12 @@ The goal is to build a robot that does more than wait for commands.
 
 It should be able to perceive its environment, remember people, decide what to do, express personality, initiate interactions, and continue functioning even when an LLM is unavailable.
 
+> **This README is the product specification, not a description of what is built.**
+> `main/xiaozhi-server/robot/` does not exist yet. For the audited current state of the
+> repository, the integration design, and what is aspirational here, read
+> [`docs/robot-architecture.md`](docs/robot-architecture.md). For phases and acceptance
+> criteria, read [`docs/robot-roadmap.md`](docs/robot-roadmap.md).
+
 ## Architecture
 
 ```text
