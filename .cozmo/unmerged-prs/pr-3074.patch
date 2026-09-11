@@ -1,0 +1,98 @@
+diff --git a/main/manager-api/src/main/resources/db/changelog/202604051200.sql b/main/manager-api/src/main/resources/db/changelog/202604051200.sql
+new file mode 100644
+index 00000000..89601f2a
+--- /dev/null
++++ b/main/manager-api/src/main/resources/db/changelog/202604051200.sql
+@@ -0,0 +1,13 @@
++-- Add Kimi/Moonshot AI LLM and VLLM model configs
++
++-- LLM: Kimi (Moonshot AI) - kimi-k2.5, OpenAI-compatible
++DELETE FROM `ai_model_config` WHERE `id` = 'LLM_KimiLLM';
++INSERT INTO `ai_model_config` VALUES ('LLM_KimiLLM', 'LLM', 'KimiLLM', 'Kimi (Moonshot AI)', 0, 1, '{"type": "openai", "model_name": "kimi-k2.5", "base_url": "https://api.moonshot.ai/v1", "api_key": "你的api_key"}', NULL, NULL, 14, NULL, NULL, NULL, NULL);
++
++-- LLM: Kimi Code Plan - optimized for coding tasks
++DELETE FROM `ai_model_config` WHERE `id` = 'LLM_KimiCodePlanLLM';
++INSERT INTO `ai_model_config` VALUES ('LLM_KimiCodePlanLLM', 'LLM', 'KimiCodePlanLLM', 'Kimi Code Plan', 0, 1, '{"type": "openai", "model_name": "kimi-for-coding", "base_url": "https://api.kimi.com/coding/v1", "api_key": "你的api_key"}', NULL, NULL, 15, NULL, NULL, NULL, NULL);
++
++-- VLLM: Kimi (Moonshot AI) - kimi-k2.5 multimodal
++DELETE FROM `ai_model_config` WHERE `id` = 'VLLM_KimiVLLM';
++INSERT INTO `ai_model_config` VALUES ('VLLM_KimiVLLM', 'VLLM', 'KimiVLLM', 'Kimi视觉模型', 0, 1, '{"type": "openai", "model_name": "kimi-k2.5", "base_url": "https://api.moonshot.ai/v1", "api_key": "你的api_key"}', NULL, NULL, 3, NULL, NULL, NULL, NULL);
+diff --git a/main/manager-api/src/main/resources/db/changelog/db.changelog-master.yaml b/main/manager-api/src/main/resources/db/changelog/db.changelog-master.yaml
+index 4510fa16..2b25fdcd 100755
+--- a/main/manager-api/src/main/resources/db/changelog/db.changelog-master.yaml
++++ b/main/manager-api/src/main/resources/db/changelog/db.changelog-master.yaml
+@@ -599,3 +599,10 @@ databaseChangeLog:
+         - sqlFile:
+             encoding: utf8
+             path: classpath:db/changelog/202604011035.sql
++  - changeSet:
++      id: 202604051200
++      author: xuruiray
++      changes:
++        - sqlFile:
++            encoding: utf8
++            path: classpath:db/changelog/202604051200.sql
+diff --git a/main/xiaozhi-server/config.yaml b/main/xiaozhi-server/config.yaml
+index ce6e6780..cc765d27 100644
+--- a/main/xiaozhi-server/config.yaml
++++ b/main/xiaozhi-server/config.yaml
+@@ -614,6 +614,21 @@ LLM:
+     model_name: deepseek-chat
+     url: https://api.deepseek.com
+     api_key: 你的deepseek web key
++  KimiLLM:
++    # 定义LLM API类型
++    type: openai
++    # Kimi/Moonshot AI，kimi-k2.5支持256K上下文，擅长代码生成和Agent任务
++    # 获取API密钥：https://platform.moonshot.ai/console/api-keys
++    model_name: kimi-k2.5
++    base_url: https://api.moonshot.ai/v1
++    api_key: 你的moonshot api_key
++  KimiCodePlanLLM:
++    # Kimi Code Plan，专为代码场景优化
++    # 获取API密钥：https://platform.moonshot.ai/console/api-keys
++    type: openai
++    model_name: kimi-for-coding
++    base_url: https://api.kimi.com/coding/v1
++    api_key: 你的moonshot api_key
+   ChatGLMLLM:
+     # 定义LLM API类型
+     type: openai
+@@ -718,6 +733,13 @@ VLLM:
+     url: https://dashscope.aliyuncs.com/compatible-mode/v1
+     # 可在这里找到你的api key https://bailian.console.aliyun.com/?apiKey=1#/api-key
+     api_key: 你的api_key
++  KimiVLLM:
++    type: openai
++    # kimi-k2.5是多模态模型，支持文本和视觉理解
++    # 获取API密钥：https://platform.moonshot.ai/console/api-keys
++    model_name: kimi-k2.5
++    base_url: https://api.moonshot.ai/v1
++    api_key: 你的moonshot api_key
+   XunfeiSparkLLM:
+     # 定义LLM API类型
+     type: openai
+diff --git a/main/xiaozhi-server/core/providers/llm/openai/openai.py b/main/xiaozhi-server/core/providers/llm/openai/openai.py
+index 3d9882f3..84e0fa57 100644
+--- a/main/xiaozhi-server/core/providers/llm/openai/openai.py
++++ b/main/xiaozhi-server/core/providers/llm/openai/openai.py
+@@ -59,7 +59,18 @@ class LLMProvider(LLMProviderBase):
+         model_key_msg = check_model_key("LLM", self.api_key)
+         if model_key_msg:
+             logger.bind(tag=TAG).error(model_key_msg)
+-        self.client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=custom_timeout)
++
++        default_headers = {}
++        kimi_domains = ("api.moonshot.ai", "api.moonshot.cn", "api.kimi.com")
++        if self.base_url and any(d in self.base_url for d in kimi_domains):
++            default_headers["User-Agent"] = "claude-code/1.0"
++
++        self.client = openai.OpenAI(
++            api_key=self.api_key,
++            base_url=self.base_url,
++            timeout=custom_timeout,
++            default_headers=default_headers if default_headers else openai.NOT_GIVEN,
++        )
+ 
+     @staticmethod
+     def normalize_dialogue(dialogue):

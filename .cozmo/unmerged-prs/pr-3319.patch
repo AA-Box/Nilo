@@ -1,0 +1,1648 @@
+diff --git a/docs/qweather-configuration.md b/docs/qweather-configuration.md
+new file mode 100644
+index 00000000..1e1a4d24
+--- /dev/null
++++ b/docs/qweather-configuration.md
+@@ -0,0 +1,42 @@
++# QWeather 天气插件配置
++
++天气插件使用 QWeather GeoAPI v2 和天气 API v7，支持 API Key 与 Ed25519 JWT 两种认证方式。
++
++## API Key
++
++```yaml
++plugins:
++  get_weather:
++    api_host: "你的API Host"
++    auth_type: "api_key"
++    api_key: "你的API Key"
++    default_location: "广州"
++```
++
++API Key 通过 `X-QW-Api-Key` 请求头发送。请使用 QWeather 控制台分配的 API Host。
++
++## JWT
++
++先在 QWeather 控制台创建 JWT 凭据并登记 Ed25519 公钥，然后配置对应的 Project ID、Credential ID 和 PKCS#8 私钥：
++
++```yaml
++plugins:
++  get_weather:
++    api_host: "你的API Host"
++    auth_type: "jwt"
++    project_id: "你的Project ID"
++    credential_id: "你的Credential ID"
++    private_key_path: "/安全目录/ed25519-private.pem"
++    default_location: "广州"
++```
++
++使用 manager-api 时，在智能体的天气插件配置中上传私钥。manager-api 需要配置项目主密钥：
++
++```yaml
++xiaozhi:
++  secret:
++    # `openssl rand -base64 32` 生成，解码后必须为 32 字节。
++    master-key: "Base64编码的项目主密钥"
++```
++
++也可通过环境变量 `XIAOZHI_SECRET_MASTER_KEY` 提供。主密钥只应配置在 manager-api；请勿提交主密钥、API Key 或私钥到代码仓库。
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/agent/service/AgentPluginMappingService.java b/main/manager-api/src/main/java/xiaozhi/modules/agent/service/AgentPluginMappingService.java
+index 8e892ad7..984d0cb7 100644
+--- a/main/manager-api/src/main/java/xiaozhi/modules/agent/service/AgentPluginMappingService.java
++++ b/main/manager-api/src/main/java/xiaozhi/modules/agent/service/AgentPluginMappingService.java
+@@ -1,6 +1,7 @@
+ package xiaozhi.modules.agent.service;
+ 
+ import java.util.List;
++import java.util.Map;
+ 
+ import com.baomidou.mybatisplus.extension.repository.IRepository;
+ 
+@@ -20,6 +21,13 @@ public interface AgentPluginMappingService extends IRepository<AgentPluginMappin
+      */
+     List<AgentPluginMapping> agentPluginParamsByAgentId(String agentId);
+ 
++    Map<String, Object> prepareParamsForStorage(String agentId, String pluginId,
++            Map<String, Object> submittedParams, String existingParamInfo);
++
++    void redactCredentialsForAdmin(List<AgentPluginMapping> mappings);
++
++    String resolveParamsForServer(AgentPluginMapping mapping);
++
+     /**
+      * 根据智能体id删除插件参数
+      *
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentPluginMappingServiceImpl.java b/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentPluginMappingServiceImpl.java
+index 7a518fb1..d8479d11 100644
+--- a/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentPluginMappingServiceImpl.java
++++ b/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentPluginMappingServiceImpl.java
+@@ -1,6 +1,14 @@
+ package xiaozhi.modules.agent.service.impl;
+ 
++import java.nio.charset.StandardCharsets;
++import java.security.KeyFactory;
++import java.security.MessageDigest;
++import java.security.PrivateKey;
++import java.security.Signature;
++import java.security.spec.PKCS8EncodedKeySpec;
+ import java.util.ArrayList;
++import java.util.Base64;
++import java.util.HexFormat;
+ import java.util.HashMap;
+ import java.util.List;
+ import java.util.Map;
+@@ -13,6 +21,7 @@ import com.baomidou.mybatisplus.spring.repository.CrudRepository;
+ 
+ import lombok.RequiredArgsConstructor;
+ import lombok.extern.slf4j.Slf4j;
++import xiaozhi.common.exception.RenException;
+ import xiaozhi.common.utils.JsonUtils;
+ import xiaozhi.modules.agent.dao.AgentPluginMappingMapper;
+ import xiaozhi.modules.agent.entity.AgentPluginMapping;
+@@ -21,6 +30,7 @@ import xiaozhi.modules.knowledge.entity.KnowledgeBaseEntity;
+ import xiaozhi.modules.knowledge.service.KnowledgeBaseService;
+ import xiaozhi.modules.model.entity.ModelConfigEntity;
+ import xiaozhi.modules.model.service.ModelConfigService;
++import xiaozhi.modules.security.secret.ProjectSecretService;
+ 
+ /**
+  * @description 针对表【ai_agent_plugin_mapping(Agent与插件的唯一映射表)】的数据库操作Service实现
+@@ -31,9 +41,187 @@ import xiaozhi.modules.model.service.ModelConfigService;
+ @Slf4j
+ public class AgentPluginMappingServiceImpl extends CrudRepository<AgentPluginMappingMapper, AgentPluginMapping>
+         implements AgentPluginMappingService {
++    private static final String WEATHER_PLUGIN_ID = "SYSTEM_PLUGIN_WEATHER";
++    private static final String WEATHER_PROVIDER_CODE = "get_weather";
++    private static final String API_KEY = "api_key";
++    private static final String PRIVATE_KEY = "private_key";
++    private static final String SNAPSHOT_SECRET_PLACEHOLDER = "__SNAPSHOT_SECRET_REDACTED__";
++
+     private final AgentPluginMappingMapper agentPluginMappingMapper;
+     private final KnowledgeBaseService knowledgeBaseService;
+     private final ModelConfigService modelConfigService;
++    private final ProjectSecretService projectSecretService;
++
++    @Override
++    public Map<String, Object> prepareParamsForStorage(String agentId, String pluginId,
++            Map<String, Object> submittedParams, String existingParamInfo) {
++        Map<String, Object> submitted = submittedParams == null ? new HashMap<>() : new HashMap<>(submittedParams);
++        if (!WEATHER_PLUGIN_ID.equals(pluginId)) {
++            return submitted;
++        }
++
++        Map<String, Object> existing = parseParams(existingParamInfo);
++        submitted.remove("api_key_configured");
++        submitted.remove("private_key_configured");
++
++        String authType = stringValue(submitted.get("auth_type"));
++        if (StringUtils.isBlank(authType)) {
++            authType = "api_key";
++        }
++        if (!"api_key".equals(authType) && !"jwt".equals(authType)) {
++            throw new RenException("QWeather auth_type must be api_key or jwt");
++        }
++        submitted.put("auth_type", authType);
++
++        preserveOrEncryptSecret(agentId, pluginId, API_KEY, submitted, existing, false);
++        preserveOrEncryptSecret(agentId, pluginId, PRIVATE_KEY, submitted, existing, true);
++        return submitted;
++    }
++
++    @Override
++    public void redactCredentialsForAdmin(List<AgentPluginMapping> mappings) {
++        if (mappings == null) {
++            return;
++        }
++        mappings.stream()
++                .filter(this::isWeatherMapping)
++                .forEach(mapping -> {
++                    Map<String, Object> params = parseParams(mapping.getParamInfo());
++                    redactCredential(params, API_KEY);
++                    redactCredential(params, PRIVATE_KEY);
++                    mapping.setParamInfo(JsonUtils.toJsonString(params));
++                });
++    }
++
++    @Override
++    public String resolveParamsForServer(AgentPluginMapping mapping) {
++        if (!isWeatherMapping(mapping)) {
++            return mapping.getParamInfo();
++        }
++        Map<String, Object> params = parseParams(mapping.getParamInfo());
++        resolveSecret(mapping, params, API_KEY, true);
++        resolveSecret(mapping, params, PRIVATE_KEY, false);
++        params.remove("api_key_configured");
++        params.remove("private_key_configured");
++        params.remove("private_key_fingerprint");
++        return JsonUtils.toJsonString(params);
++    }
++
++    private void preserveOrEncryptSecret(String agentId, String pluginId, String field,
++            Map<String, Object> submitted, Map<String, Object> existing, boolean encryptionRequired) {
++        String value = stringValue(submitted.get(field));
++        String existingValue = stringValue(existing.get(field));
++        if (StringUtils.isBlank(value) || SNAPSHOT_SECRET_PLACEHOLDER.equals(value)) {
++            if (StringUtils.isNotBlank(existingValue)) {
++                submitted.put(field, existingValue);
++                if (PRIVATE_KEY.equals(field) && existing.containsKey("private_key_fingerprint")) {
++                    submitted.put("private_key_fingerprint", existing.get("private_key_fingerprint"));
++                }
++            } else {
++                submitted.remove(field);
++            }
++            return;
++        }
++        if (projectSecretService.isEncrypted(value)) {
++            throw new RenException("Encrypted credentials cannot be submitted directly");
++        }
++
++        String normalized = PRIVATE_KEY.equals(field) ? validateAndNormalizePrivateKey(value) : value.trim();
++        if (encryptionRequired && !projectSecretService.isConfigured()) {
++            throw new RenException("xiaozhi.secret.master-key is required for QWeather JWT credentials");
++        }
++        String stored = projectSecretService.isConfigured()
++                ? projectSecretService.encrypt(normalized, purpose(field), aad(agentId, pluginId, field))
++                : normalized;
++        submitted.put(field, stored);
++        if (PRIVATE_KEY.equals(field)) {
++            submitted.put("private_key_fingerprint", fingerprint(normalized));
++        }
++    }
++
++    private void resolveSecret(AgentPluginMapping mapping, Map<String, Object> params, String field,
++            boolean allowLegacyPlaintext) {
++        String value = stringValue(params.get(field));
++        if (StringUtils.isBlank(value)) {
++            params.remove(field);
++            return;
++        }
++        try {
++            if (projectSecretService.isEncrypted(value)) {
++                params.put(field, projectSecretService.decrypt(value, purpose(field),
++                        aad(mapping.getAgentId(), mapping.getPluginId(), field)));
++            } else if (!allowLegacyPlaintext) {
++                log.warn("Ignoring plaintext QWeather private key for agent {}", mapping.getAgentId());
++                params.remove(field);
++            }
++        } catch (RuntimeException exception) {
++            log.warn("Unable to resolve QWeather {} for agent {}", field, mapping.getAgentId());
++            params.remove(field);
++        }
++    }
++
++    private void redactCredential(Map<String, Object> params, String field) {
++        boolean configured = StringUtils.isNotBlank(stringValue(params.remove(field)));
++        params.put(field + "_configured", configured);
++        params.put(field, "");
++    }
++
++    private boolean isWeatherMapping(AgentPluginMapping mapping) {
++        return mapping != null && (WEATHER_PLUGIN_ID.equals(mapping.getPluginId())
++                || WEATHER_PROVIDER_CODE.equals(mapping.getProviderCode()));
++    }
++
++    private Map<String, Object> parseParams(String paramInfo) {
++        if (StringUtils.isBlank(paramInfo)) {
++            return new HashMap<>();
++        }
++        Map<String, Object> parsed = JsonUtils.toStringObjectMap(JsonUtils.parseObject(paramInfo, Map.class));
++        return parsed == null ? new HashMap<>() : new HashMap<>(parsed);
++    }
++
++    private String validateAndNormalizePrivateKey(String pem) {
++        String normalized = pem.replace("\r\n", "\n").trim();
++        String begin = "-----BEGIN PRIVATE KEY-----";
++        String end = "-----END PRIVATE KEY-----";
++        if (!normalized.startsWith(begin) || !normalized.endsWith(end)) {
++            throw new RenException("QWeather private key must be an Ed25519 PKCS#8 PEM");
++        }
++        try {
++            String base64 = normalized.substring(begin.length(), normalized.length() - end.length())
++                    .replaceAll("\\s", "");
++            byte[] der = Base64.getDecoder().decode(base64);
++            PrivateKey privateKey = KeyFactory.getInstance("Ed25519")
++                    .generatePrivate(new PKCS8EncodedKeySpec(der));
++            Signature signature = Signature.getInstance("Ed25519");
++            signature.initSign(privateKey);
++            signature.update("xiaozhi-qweather-key-check".getBytes(StandardCharsets.UTF_8));
++            signature.sign();
++            return normalized + "\n";
++        } catch (Exception exception) {
++            throw new RenException("QWeather private key must be an Ed25519 PKCS#8 PEM", exception);
++        }
++    }
++
++    private String fingerprint(String value) {
++        try {
++            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
++            return HexFormat.of().formatHex(digest, 0, 8);
++        } catch (Exception exception) {
++            throw new IllegalStateException("Unable to fingerprint QWeather private key", exception);
++        }
++    }
++
++    private String purpose(String field) {
++        return "agent-plugin-secret:v1:" + WEATHER_PROVIDER_CODE + ":" + field;
++    }
++
++    private String aad(String agentId, String pluginId, String field) {
++        return String.join("|", StringUtils.defaultString(agentId), StringUtils.defaultString(pluginId), field);
++    }
++
++    private String stringValue(Object value) {
++        return value == null ? null : String.valueOf(value);
++    }
+ 
+     @Override
+     public List<AgentPluginMapping> agentPluginParamsByAgentId(String agentId) {
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentServiceImpl.java b/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentServiceImpl.java
+index 8001c205..d929a3a9 100644
+--- a/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentServiceImpl.java
++++ b/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentServiceImpl.java
+@@ -115,6 +115,10 @@ public class AgentServiceImpl extends BaseServiceImpl<AgentDao, AgentEntity> imp
+         agent.setCorrectWordFileIds(correctWordFileIds);
+         agent.setCurrentVersionNo(agentSnapshotService.getCurrentVersionNo(id));
+ 
++        if (agent.getFunctions() != null && !agent.getFunctions().isEmpty()) {
++            agentPluginMappingService.redactCredentialsForAdmin(agent.getFunctions());
++        }
++
+         // 无需额外查询插件列表，已通过SQL查询出来
+         return agent;
+     }
+@@ -461,13 +465,15 @@ public class AgentServiceImpl extends BaseServiceImpl<AgentDao, AgentEntity> imp
+                     .collect(Collectors.toMap(AgentPluginMapping::getPluginId, Function.identity()));
+ 
+             // 3. 构造所有要 保存或更新 的实体
+-            List<AgentPluginMapping> allToPersist = functions.stream().map(info -> {
+-                AgentPluginMapping m = new AgentPluginMapping();
+-                m.setAgentId(agentId);
+-                m.setPluginId(info.getPluginId());
+-                m.setParamInfo(JsonUtils.toJsonString(info.getParamInfo()));
+-                AgentPluginMapping old = existMap.get(info.getPluginId());
+-                if (old != null) {
++            List<AgentPluginMapping> allToPersist = functions.stream().map(info -> {
++                AgentPluginMapping m = new AgentPluginMapping();
++                m.setAgentId(agentId);
++                m.setPluginId(info.getPluginId());
++                AgentPluginMapping old = existMap.get(info.getPluginId());
++                Map<String, Object> protectedParams = agentPluginMappingService.prepareParamsForStorage(
++                        agentId, info.getPluginId(), info.getParamInfo(), old == null ? null : old.getParamInfo());
++                m.setParamInfo(JsonUtils.toJsonString(protectedParams));
++                if (old != null) {
+                     // 已存在，设置id表示更新
+                     m.setId(old.getId());
+                 }
+@@ -683,7 +689,8 @@ public class AgentServiceImpl extends BaseServiceImpl<AgentDao, AgentEntity> imp
+                     paramInfo.put((String) field.get("key"), field.get("default"));
+                 }
+             }
+-            mapping.setParamInfo(JsonUtils.toJsonString(paramInfo));
++            mapping.setParamInfo(JsonUtils.toJsonString(agentPluginMappingService.prepareParamsForStorage(
++                    entity.getId(), pluginId, paramInfo, null)));
+             mapping.setAgentId(entity.getId());
+             toInsert.add(mapping);
+         }
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/config/service/impl/ConfigServiceImpl.java b/main/manager-api/src/main/java/xiaozhi/modules/config/service/impl/ConfigServiceImpl.java
+index 45e465f2..93ebd65f 100644
+--- a/main/manager-api/src/main/java/xiaozhi/modules/config/service/impl/ConfigServiceImpl.java
++++ b/main/manager-api/src/main/java/xiaozhi/modules/config/service/impl/ConfigServiceImpl.java
+@@ -198,7 +198,8 @@ public class ConfigServiceImpl implements ConfigService {
+             if (pluginMappings != null && !pluginMappings.isEmpty()) {
+                 Map<String, Object> pluginParams = new HashMap<>();
+                 for (AgentPluginMapping pluginMapping : pluginMappings) {
+-                    pluginParams.put(pluginMapping.getProviderCode(), pluginMapping.getParamInfo());
++                    pluginParams.put(pluginMapping.getProviderCode(),
++                            agentPluginMappingService.resolveParamsForServer(pluginMapping));
+                 }
+                 result.put("plugins", pluginParams);
+             }
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/security/secret/ProjectSecretService.java b/main/manager-api/src/main/java/xiaozhi/modules/security/secret/ProjectSecretService.java
+new file mode 100644
+index 00000000..5ee62662
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/security/secret/ProjectSecretService.java
+@@ -0,0 +1,132 @@
++package xiaozhi.modules.security.secret;
++
++import java.nio.charset.StandardCharsets;
++import java.security.GeneralSecurityException;
++import java.security.SecureRandom;
++import java.util.Base64;
++
++import javax.crypto.Cipher;
++import javax.crypto.Mac;
++import javax.crypto.spec.GCMParameterSpec;
++import javax.crypto.spec.SecretKeySpec;
++
++import org.apache.commons.lang3.StringUtils;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.beans.factory.annotation.Value;
++import org.springframework.stereotype.Component;
++
++/**
++ * Encrypts project secrets with purpose-separated keys derived from one master key.
++ */
++@Component
++public class ProjectSecretService {
++    private static final String PREFIX = "enc:v1:a256gcm:";
++    private static final byte[] HKDF_SALT = "xiaozhi-project-secret-v1".getBytes(StandardCharsets.UTF_8);
++    private static final int NONCE_LENGTH = 12;
++    private static final int TAG_LENGTH_BITS = 128;
++
++    private final byte[] masterKey;
++    private final SecureRandom secureRandom;
++
++    @Autowired
++    public ProjectSecretService(@Value("${xiaozhi.secret.master-key:}") String encodedMasterKey) {
++        this(encodedMasterKey, new SecureRandom());
++    }
++
++    ProjectSecretService(String encodedMasterKey, SecureRandom secureRandom) {
++        this.secureRandom = secureRandom;
++        if (StringUtils.isBlank(encodedMasterKey)) {
++            this.masterKey = null;
++            return;
++        }
++        try {
++            this.masterKey = Base64.getDecoder().decode(encodedMasterKey.trim());
++        } catch (IllegalArgumentException exception) {
++            throw new IllegalStateException("xiaozhi.secret.master-key must be valid Base64", exception);
++        }
++        if (this.masterKey.length != 32) {
++            throw new IllegalStateException("xiaozhi.secret.master-key must decode to exactly 32 bytes");
++        }
++    }
++
++    public boolean isConfigured() {
++        return masterKey != null;
++    }
++
++    public boolean isEncrypted(String value) {
++        return value != null && value.startsWith(PREFIX);
++    }
++
++    public String encrypt(String plaintext, String purpose, String aad) {
++        requireConfigured();
++        if (plaintext == null) {
++            return null;
++        }
++        byte[] nonce = new byte[NONCE_LENGTH];
++        secureRandom.nextBytes(nonce);
++        try {
++            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
++            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(deriveKey(purpose), "AES"),
++                    new GCMParameterSpec(TAG_LENGTH_BITS, nonce));
++            cipher.updateAAD(requireText(aad, "aad").getBytes(StandardCharsets.UTF_8));
++            byte[] ciphertext = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
++            Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
++            return PREFIX + encoder.encodeToString(nonce) + ":" + encoder.encodeToString(ciphertext);
++        } catch (GeneralSecurityException exception) {
++            throw new IllegalStateException("Project secret encryption failed", exception);
++        }
++    }
++
++    public String decrypt(String envelope, String purpose, String aad) {
++        requireConfigured();
++        if (!isEncrypted(envelope)) {
++            throw new IllegalArgumentException("Unsupported project secret envelope");
++        }
++        String payload = envelope.substring(PREFIX.length());
++        String[] parts = payload.split(":", 2);
++        if (parts.length != 2) {
++            throw new IllegalArgumentException("Malformed project secret envelope");
++        }
++        try {
++            Base64.Decoder decoder = Base64.getUrlDecoder();
++            byte[] nonce = decoder.decode(parts[0]);
++            if (nonce.length != NONCE_LENGTH) {
++                throw new IllegalArgumentException("Malformed project secret nonce");
++            }
++            byte[] ciphertext = decoder.decode(parts[1]);
++            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
++            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(deriveKey(purpose), "AES"),
++                    new GCMParameterSpec(TAG_LENGTH_BITS, nonce));
++            cipher.updateAAD(requireText(aad, "aad").getBytes(StandardCharsets.UTF_8));
++            return new String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8);
++        } catch (IllegalArgumentException exception) {
++            throw exception;
++        } catch (GeneralSecurityException exception) {
++            throw new IllegalStateException("Project secret decryption failed", exception);
++        }
++    }
++
++    private byte[] deriveKey(String purpose) throws GeneralSecurityException {
++        Mac mac = Mac.getInstance("HmacSHA256");
++        mac.init(new SecretKeySpec(HKDF_SALT, "HmacSHA256"));
++        byte[] pseudorandomKey = mac.doFinal(masterKey);
++
++        mac.init(new SecretKeySpec(pseudorandomKey, "HmacSHA256"));
++        mac.update(requireText(purpose, "purpose").getBytes(StandardCharsets.UTF_8));
++        mac.update((byte) 1);
++        return mac.doFinal();
++    }
++
++    private void requireConfigured() {
++        if (!isConfigured()) {
++            throw new IllegalStateException("xiaozhi.secret.master-key is not configured");
++        }
++    }
++
++    private static String requireText(String value, String name) {
++        if (StringUtils.isBlank(value)) {
++            throw new IllegalArgumentException(name + " must not be blank");
++        }
++        return value;
++    }
++}
+diff --git a/main/manager-api/src/main/resources/db/changelog/202608111200.sql b/main/manager-api/src/main/resources/db/changelog/202608111200.sql
+new file mode 100644
+index 00000000..02b55a5d
+--- /dev/null
++++ b/main/manager-api/src/main/resources/db/changelog/202608111200.sql
+@@ -0,0 +1,60 @@
++UPDATE sys_params
++SET param_value = ''
++WHERE param_code = 'plugins.get_weather.api_key'
++  AND param_value = 'a861d0d5e7bf4ee1a83d9a9e4f96d4da';
++
++UPDATE ai_model_provider
++SET fields = JSON_ARRAY(
++    JSON_OBJECT(
++        'key', 'auth_type',
++        'type', 'select',
++        'label', '认证方式',
++        'default', 'api_key',
++        'options', JSON_ARRAY(
++            JSON_OBJECT('label', 'API Key', 'value', 'api_key'),
++            JSON_OBJECT('label', 'JWT', 'value', 'jwt')
++        )
++    ),
++    JSON_OBJECT(
++        'key', 'api_key',
++        'type', 'password',
++        'label', '天气插件 API Key',
++        'default', (SELECT param_value FROM sys_params WHERE param_code = 'plugins.get_weather.api_key'),
++        'visible_when', JSON_OBJECT('auth_type', 'api_key')
++    ),
++    JSON_OBJECT(
++        'key', 'project_id',
++        'type', 'string',
++        'label', 'QWeather Project ID',
++        'default', '',
++        'visible_when', JSON_OBJECT('auth_type', 'jwt')
++    ),
++    JSON_OBJECT(
++        'key', 'credential_id',
++        'type', 'string',
++        'label', 'QWeather Credential ID',
++        'default', '',
++        'visible_when', JSON_OBJECT('auth_type', 'jwt')
++    ),
++    JSON_OBJECT(
++        'key', 'private_key',
++        'type', 'file',
++        'label', 'Ed25519 PKCS#8 私钥',
++        'default', '',
++        'accept', '.pem',
++        'visible_when', JSON_OBJECT('auth_type', 'jwt')
++    ),
++    JSON_OBJECT(
++        'key', 'default_location',
++        'type', 'string',
++        'label', '默认查询城市',
++        'default', (SELECT param_value FROM sys_params WHERE param_code = 'plugins.get_weather.default_location')
++    ),
++    JSON_OBJECT(
++        'key', 'api_host',
++        'type', 'string',
++        'label', '开发者 API Host',
++        'default', (SELECT param_value FROM sys_params WHERE param_code = 'plugins.get_weather.api_host')
++    )
++)
++WHERE id = 'SYSTEM_PLUGIN_WEATHER';
+diff --git a/main/manager-api/src/main/resources/db/changelog/db.changelog-master.yaml b/main/manager-api/src/main/resources/db/changelog/db.changelog-master.yaml
+index 90a5148d..6577dacd 100644
+--- a/main/manager-api/src/main/resources/db/changelog/db.changelog-master.yaml
++++ b/main/manager-api/src/main/resources/db/changelog/db.changelog-master.yaml
+@@ -725,3 +725,10 @@ databaseChangeLog:
+         - sqlFile:
+             encoding: utf8
+             path: classpath:db/changelog/202608061030.sql
++  - changeSet:
++      id: 202608111200
++      author: tairan
++      changes:
++        - sqlFile:
++            encoding: utf8
++            path: classpath:db/changelog/202608111200.sql
+diff --git a/main/manager-api/src/test/java/xiaozhi/modules/agent/service/impl/AgentPluginMappingServiceImplTest.java b/main/manager-api/src/test/java/xiaozhi/modules/agent/service/impl/AgentPluginMappingServiceImplTest.java
+new file mode 100644
+index 00000000..67885106
+--- /dev/null
++++ b/main/manager-api/src/test/java/xiaozhi/modules/agent/service/impl/AgentPluginMappingServiceImplTest.java
+@@ -0,0 +1,122 @@
++package xiaozhi.modules.agent.service.impl;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertThrows;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++import static org.mockito.Mockito.mock;
++
++import java.security.KeyPairGenerator;
++import java.util.Base64;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++
++import org.junit.jupiter.api.Test;
++
++import xiaozhi.common.exception.RenException;
++import xiaozhi.common.utils.JsonUtils;
++import xiaozhi.modules.agent.dao.AgentPluginMappingMapper;
++import xiaozhi.modules.agent.entity.AgentPluginMapping;
++import xiaozhi.modules.knowledge.service.KnowledgeBaseService;
++import xiaozhi.modules.model.service.ModelConfigService;
++import xiaozhi.modules.security.secret.ProjectSecretService;
++
++class AgentPluginMappingServiceImplTest {
++    private static final String AGENT_ID = "agent-a";
++    private static final String PLUGIN_ID = "SYSTEM_PLUGIN_WEATHER";
++
++    @Test
++    void encryptsJwtPrivateKeyAndResolvesItOnlyForServerConfig() throws Exception {
++        AgentPluginMappingServiceImpl service = newService(masterKey());
++        String privateKey = privateKeyPem();
++        Map<String, Object> submitted = new HashMap<>();
++        submitted.put("auth_type", "jwt");
++        submitted.put("project_id", "project");
++        submitted.put("credential_id", "credential");
++        submitted.put("private_key", privateKey);
++
++        Map<String, Object> stored = service.prepareParamsForStorage(AGENT_ID, PLUGIN_ID, submitted, null);
++
++        String envelope = String.valueOf(stored.get("private_key"));
++        assertTrue(envelope.startsWith("enc:v1:a256gcm:"));
++        assertFalse(envelope.contains("BEGIN PRIVATE KEY"));
++        assertTrue(String.valueOf(stored.get("private_key_fingerprint")).matches("[0-9a-f]{16}"));
++
++        AgentPluginMapping mapping = weatherMapping(JsonUtils.toJsonString(stored));
++        Map<String, Object> runtime = JsonUtils.parseMap(service.resolveParamsForServer(mapping));
++        assertEquals(privateKey.trim(), String.valueOf(runtime.get("private_key")).trim());
++        assertFalse(runtime.containsKey("private_key_fingerprint"));
++
++        service.redactCredentialsForAdmin(List.of(mapping));
++        Map<String, Object> admin = JsonUtils.parseMap(mapping.getParamInfo());
++        assertEquals("", admin.get("private_key"));
++        assertEquals(true, admin.get("private_key_configured"));
++        assertFalse(mapping.getParamInfo().contains("enc:v1"));
++    }
++
++    @Test
++    void preservesStoredCredentialsWhenAdminSubmitsMaskedBlankValues() throws Exception {
++        AgentPluginMappingServiceImpl service = newService(masterKey());
++        Map<String, Object> first = service.prepareParamsForStorage(
++                AGENT_ID,
++                PLUGIN_ID,
++                Map.of("auth_type", "jwt", "private_key", privateKeyPem()),
++                null);
++        Map<String, Object> masked = new HashMap<>();
++        masked.put("auth_type", "jwt");
++        masked.put("private_key", "");
++        masked.put("private_key_configured", true);
++
++        Map<String, Object> saved = service.prepareParamsForStorage(
++                AGENT_ID, PLUGIN_ID, masked, JsonUtils.toJsonString(first));
++
++        assertEquals(first.get("private_key"), saved.get("private_key"));
++        assertEquals(first.get("private_key_fingerprint"), saved.get("private_key_fingerprint"));
++        assertFalse(saved.containsKey("private_key_configured"));
++    }
++
++    @Test
++    void keepsLegacyApiKeyWorkingWithoutMasterKeyButRejectsJwtPrivateKey() throws Exception {
++        AgentPluginMappingServiceImpl service = newService("");
++
++        Map<String, Object> apiKey = service.prepareParamsForStorage(
++                AGENT_ID, PLUGIN_ID, Map.of("auth_type", "api_key", "api_key", "legacy"), null);
++
++        assertEquals("legacy", apiKey.get("api_key"));
++        assertThrows(RenException.class,
++                () -> service.prepareParamsForStorage(
++                        AGENT_ID, PLUGIN_ID, Map.of("auth_type", "jwt", "private_key", privateKeyPem()), null));
++    }
++
++    private static AgentPluginMappingServiceImpl newService(String masterKey) {
++        return new AgentPluginMappingServiceImpl(
++                mock(AgentPluginMappingMapper.class),
++                mock(KnowledgeBaseService.class),
++                mock(ModelConfigService.class),
++                new ProjectSecretService(masterKey));
++    }
++
++    private static AgentPluginMapping weatherMapping(String paramInfo) {
++        AgentPluginMapping mapping = new AgentPluginMapping();
++        mapping.setAgentId(AGENT_ID);
++        mapping.setPluginId(PLUGIN_ID);
++        mapping.setProviderCode("get_weather");
++        mapping.setParamInfo(paramInfo);
++        return mapping;
++    }
++
++    private static String masterKey() {
++        byte[] key = new byte[32];
++        for (int index = 0; index < key.length; index++) {
++            key[index] = (byte) index;
++        }
++        return Base64.getEncoder().encodeToString(key);
++    }
++
++    private static String privateKeyPem() throws Exception {
++        byte[] der = KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPrivate().getEncoded();
++        String base64 = Base64.getMimeEncoder(64, new byte[] { '\n' }).encodeToString(der);
++        return "-----BEGIN PRIVATE KEY-----\n" + base64 + "\n-----END PRIVATE KEY-----\n";
++    }
++}
+diff --git a/main/manager-api/src/test/java/xiaozhi/modules/security/secret/ProjectSecretServiceTest.java b/main/manager-api/src/test/java/xiaozhi/modules/security/secret/ProjectSecretServiceTest.java
+new file mode 100644
+index 00000000..48909722
+--- /dev/null
++++ b/main/manager-api/src/test/java/xiaozhi/modules/security/secret/ProjectSecretServiceTest.java
+@@ -0,0 +1,52 @@
++package xiaozhi.modules.security.secret;
++
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertNotEquals;
++import static org.junit.jupiter.api.Assertions.assertNotNull;
++import static org.junit.jupiter.api.Assertions.assertThrows;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++import static org.junit.jupiter.api.Assertions.assertEquals;
++
++import java.util.Base64;
++
++import org.junit.jupiter.api.Test;
++import org.springframework.beans.factory.annotation.Autowired;
++
++class ProjectSecretServiceTest {
++    @Test
++    void productionConstructorIsExplicitlyAutowired() throws Exception {
++        assertNotNull(ProjectSecretService.class.getConstructor(String.class).getAnnotation(Autowired.class));
++    }
++
++    private static final String MASTER_KEY = Base64.getEncoder().encodeToString(new byte[32]);
++
++    @Test
++    void encryptsWithRandomNonceAndRequiresMatchingContext() {
++        ProjectSecretService service = new ProjectSecretService(MASTER_KEY);
++
++        String first = service.encrypt("private", "weather-key", "agent-a");
++        String second = service.encrypt("private", "weather-key", "agent-a");
++
++        assertTrue(service.isEncrypted(first));
++        assertNotEquals(first, second);
++        assertEquals("private", service.decrypt(first, "weather-key", "agent-a"));
++        assertThrows(IllegalStateException.class,
++                () -> service.decrypt(first, "weather-key", "agent-b"));
++    }
++
++    @Test
++    void allowsLegacyModeOnlyWhenMasterKeyIsAbsent() {
++        ProjectSecretService service = new ProjectSecretService("");
++
++        assertFalse(service.isConfigured());
++        assertThrows(IllegalStateException.class,
++                () -> service.encrypt("private", "weather-key", "agent-a"));
++    }
++
++    @Test
++    void rejectsWrongLengthMasterKey() {
++        String shortKey = Base64.getEncoder().encodeToString(new byte[16]);
++
++        assertThrows(IllegalStateException.class, () -> new ProjectSecretService(shortKey));
++    }
++}
+diff --git a/main/manager-web/src/components/FunctionDialog.vue b/main/manager-web/src/components/FunctionDialog.vue
+index 595159ca..e6479226 100644
+--- a/main/manager-web/src/components/FunctionDialog.vue
++++ b/main/manager-web/src/components/FunctionDialog.vue
+@@ -70,7 +70,7 @@
+             <div v-if="currentFunction.fieldsMeta.length == 0">
+               <el-empty :description="currentFunction.name + $t('functionDialog.noNeedToConfig')" />
+             </div>
+-            <el-form-item v-for="field in currentFunction.fieldsMeta" :key="field.key" :label="field.label"
++            <el-form-item v-for="field in currentFunction.fieldsMeta" v-if="fieldVisible(field)" :key="field.key" :label="field.label"
+               class="param-item" :class="{ 'textarea-field': field.type === 'array' || field.type === 'json' }">
+               <template #label>
+                 <span style="font-size: 16px; margin-right: 6px;">{{ field.label }}</span>
+@@ -95,6 +95,35 @@
+                 :value="currentFunction.params[field.key]"
+                 @change="val => handleParamChange(currentFunction, field.key, val)" />
+ 
++              <!-- select -->
++              <el-select v-else-if="field.type === 'select'" v-model="currentFunction.params[field.key]"
++                @change="val => handleParamChange(currentFunction, field.key, val)">
++                <el-option v-for="option in field.options || []" :key="option.value"
++                  :label="option.label" :value="option.value" />
++              </el-select>
++
++              <!-- secret file -->
++              <div v-else-if="field.type === 'file'" class="secret-file-field">
++                <el-upload action="" :auto-upload="false" :show-file-list="false"
++                  :accept="field.accept || '.pem'"
++                  :on-change="file => handleSecretFileChange(currentFunction, field, file)">
++                  <el-button size="small" type="primary">{{ $t('functionDialog.selectSecretFile') }}</el-button>
++                </el-upload>
++                <span v-if="uploadNames[field.key]" class="credential-status">{{ uploadNames[field.key] }}</span>
++                <span v-else-if="currentFunction.params[field.key + '_configured']" class="credential-status">
++                  {{ $t('functionDialog.credentialConfigured') }}
++                  <template v-if="currentFunction.params[field.key + '_fingerprint']">
++                    ({{ currentFunction.params[field.key + '_fingerprint'] }})
++                  </template>
++                </span>
++              </div>
++
++              <!-- password -->
++              <el-input v-else-if="field.type === 'password'" type="password" show-password
++                v-model="currentFunction.params[field.key]"
++                :placeholder="currentFunction.params[field.key + '_configured'] ? $t('functionDialog.leaveBlankToKeep') : ''"
++                @change="val => handleParamChange(currentFunction, field.key, val)" />
++
+               <!-- string or fallback -->
+               <el-input v-else v-model="currentFunction.params[field.key]"
+                 @change="val => handleParamChange(currentFunction, field.key, val)" />
+@@ -194,6 +223,7 @@ export default {
+   data() {
+     return {
+       textCache: {},
++      uploadNames: {},
+       dialogVisible: this.value,
+       selectedNames: [],
+       currentFunction: null,
+@@ -253,6 +283,7 @@ export default {
+     async value(v) {
+       this.dialogVisible = v;
+       if (v) {
++        this.uploadNames = {};
+         // 加载功能状态（需要在初始化选中态之前）
+         await this.loadFeatureStatus();
+ 
+@@ -272,7 +303,7 @@ export default {
+           const idx = this.allFunctions.findIndex(f => f.name === saved.name);
+           if (idx >= 0) {
+             // 保留用户之前在 saved.params 上的改动
+-            this.allFunctions[idx].params = { ...saved.params };
++            this.allFunctions[idx].params = { ...this.allFunctions[idx].params, ...saved.params };
+           }
+         });
+         // 右侧默认指向第一个
+@@ -378,6 +409,34 @@ export default {
+         this.$message.error(`${this.currentFunction.name}${this.$t('functionDialog.jsonFormatError')}`);
+       }
+     },
++    fieldVisible(field) {
++      const condition = field.visible_when || field.visibleWhen;
++      if (!condition || typeof condition !== 'object') {
++        return true;
++      }
++      return Object.entries(condition).every(([key, expected]) => {
++        const actual = this.currentFunction.params[key] ?? (key === 'auth_type' ? 'api_key' : undefined);
++        return actual === expected;
++      });
++    },
++    handleSecretFileChange(func, field, file) {
++      const raw = file && file.raw;
++      if (!raw) {
++        return;
++      }
++      if (raw.size > 16 * 1024) {
++        this.$message.error(this.$t('functionDialog.secretFileTooLarge'));
++        return;
++      }
++      const reader = new FileReader();
++      reader.onload = () => {
++        this.handleParamChange(func, field.key, String(reader.result || ''));
++        this.$set(func.params, field.key, String(reader.result || ''));
++        this.$set(this.uploadNames, field.key, raw.name);
++      };
++      reader.onerror = () => this.$message.error(this.$t('functionDialog.secretFileReadFailed'));
++      reader.readAsText(raw, 'UTF-8');
++    },
+     handleFunctionClick(func) {
+       if (this.selectedNames.includes(func.name)) {
+         const tempFunc = this.tempFunctions[func.name];
+@@ -420,6 +479,7 @@ export default {
+ 
+     closeDialog() {
+       this.tempFunctions = {};
++      this.uploadNames = {};
+       this.selectedNames = this.functions.map(f => f.name);
+       this.currentFunction = null;
+       this.dialogVisible = false;
+@@ -432,6 +492,7 @@ export default {
+         this.modifiedFunctions[name] = JSON.parse(JSON.stringify(this.tempFunctions[name]));
+       });
+       this.tempFunctions = {};
++      this.uploadNames = {};
+       this.hasSaved = true;
+ 
+       let selected = this.selectedList.map(f => {
+@@ -640,6 +701,18 @@ export default {
+   }
+ }
+ 
++.secret-file-field {
++  display: flex;
++  align-items: center;
++  gap: 10px;
++  flex-wrap: wrap;
++}
++
++.credential-status {
++  color: #67c23a;
++  font-size: 13px;
++}
++
+ .params-container {
+   padding: 16px;
+   border-radius: 4px;
+@@ -894,4 +967,4 @@ export default {
+     padding: 10px 0;
+   }
+ }
+-</style>
+\ No newline at end of file
++</style>
+diff --git a/main/manager-web/src/i18n/de.js b/main/manager-web/src/i18n/de.js
+index 4e5271fa..aafb8703 100644
+--- a/main/manager-web/src/i18n/de.js
++++ b/main/manager-web/src/i18n/de.js
+@@ -1031,6 +1031,11 @@ export default {
+   'functionDialog.copyFailed': 'Kopieren fehlgeschlagen, bitte manuell kopieren',
+   'functionDialog.jsonFormatError': ' Feldformatfehler: ungültiges JSON-Format',
+   'functionDialog.defaultValue': 'Standardwert',
++  'functionDialog.selectSecretFile': 'Privaten Schlüssel auswählen',
++  'functionDialog.credentialConfigured': 'Konfiguriert',
++  'functionDialog.leaveBlankToKeep': 'Leer lassen, um die aktuellen Zugangsdaten beizubehalten',
++  'functionDialog.secretFileTooLarge': 'Die Schlüsseldatei darf höchstens 16 KB groß sein',
++  'functionDialog.secretFileReadFailed': 'Schlüsseldatei konnte nicht gelesen werden',
+ 
+   // Model Configuration Page Text
+   'modelConfig.searchPlaceholder': 'Bitte Modellnamen zur Suche eingeben',
+diff --git a/main/manager-web/src/i18n/en.js b/main/manager-web/src/i18n/en.js
+index 22d7a76c..c7109ae1 100644
+--- a/main/manager-web/src/i18n/en.js
++++ b/main/manager-web/src/i18n/en.js
+@@ -1031,6 +1031,11 @@ export default {
+   'functionDialog.copyFailed': 'Copy failed, please copy manually',
+   'functionDialog.jsonFormatError': ' field format error: invalid JSON format',
+   'functionDialog.defaultValue': 'Default Value',
++  'functionDialog.selectSecretFile': 'Select private key',
++  'functionDialog.credentialConfigured': 'Configured',
++  'functionDialog.leaveBlankToKeep': 'Leave blank to keep the current credential',
++  'functionDialog.secretFileTooLarge': 'The private key file must not exceed 16KB',
++  'functionDialog.secretFileReadFailed': 'Failed to read the private key file',
+ 
+   // Model Configuration Page Text
+   'modelConfig.searchPlaceholder': 'Please enter model name to search',
+diff --git a/main/manager-web/src/i18n/pt_BR.js b/main/manager-web/src/i18n/pt_BR.js
+index 95f2ed1d..9adfa453 100644
+--- a/main/manager-web/src/i18n/pt_BR.js
++++ b/main/manager-web/src/i18n/pt_BR.js
+@@ -1031,6 +1031,11 @@ export default {
+   'functionDialog.copyFailed': 'Falha ao copiar. Por favor, copie manualmente',
+   'functionDialog.jsonFormatError': ' erro no formato do campo: formato JSON inválido',
+   'functionDialog.defaultValue': 'Valor Padrão',
++  'functionDialog.selectSecretFile': 'Selecionar chave privada',
++  'functionDialog.credentialConfigured': 'Configurado',
++  'functionDialog.leaveBlankToKeep': 'Deixe em branco para manter a credencial atual',
++  'functionDialog.secretFileTooLarge': 'O arquivo de chave privada não pode exceder 16 KB',
++  'functionDialog.secretFileReadFailed': 'Falha ao ler o arquivo de chave privada',
+ 
+   // Página de configuração de modelos
+   'modelConfig.searchPlaceholder': 'Por favor, insira o nome do modelo para pesquisar',
+diff --git a/main/manager-web/src/i18n/vi.js b/main/manager-web/src/i18n/vi.js
+index a1e06d67..77f0c1e4 100644
+--- a/main/manager-web/src/i18n/vi.js
++++ b/main/manager-web/src/i18n/vi.js
+@@ -1031,6 +1031,11 @@ export default {
+   'functionDialog.copyFailed': 'Sao chép thất bại, vui lòng sao chép thủ công',
+   'functionDialog.jsonFormatError': ' lỗi định dạng trường: định dạng JSON không hợp lệ',
+   'functionDialog.defaultValue': 'Giá trị mặc định',
++  'functionDialog.selectSecretFile': 'Chọn khóa riêng tư',
++  'functionDialog.credentialConfigured': 'Đã cấu hình',
++  'functionDialog.leaveBlankToKeep': 'Để trống để giữ thông tin xác thực hiện tại',
++  'functionDialog.secretFileTooLarge': 'Tệp khóa riêng tư không được vượt quá 16 KB',
++  'functionDialog.secretFileReadFailed': 'Không thể đọc tệp khóa riêng tư',
+ 
+   // Model Configuration Page Text
+   'modelConfig.searchPlaceholder': 'Vui lòng nhập tên mô hình để tìm kiếm',
+diff --git a/main/manager-web/src/i18n/zh_CN.js b/main/manager-web/src/i18n/zh_CN.js
+index ad36061c..898585f5 100644
+--- a/main/manager-web/src/i18n/zh_CN.js
++++ b/main/manager-web/src/i18n/zh_CN.js
+@@ -1031,6 +1031,11 @@ export default {
+   'functionDialog.copyFailed': '复制失败，请手动复制',
+   'functionDialog.jsonFormatError': '的字段格式错误：JSON格式有误',
+   'functionDialog.defaultValue': '默认值',
++  'functionDialog.selectSecretFile': '选择私钥文件',
++  'functionDialog.credentialConfigured': '已配置',
++  'functionDialog.leaveBlankToKeep': '留空则保留现有凭据',
++  'functionDialog.secretFileTooLarge': '私钥文件不能超过 16KB',
++  'functionDialog.secretFileReadFailed': '读取私钥文件失败',
+ 
+   // 模型配置页面文本
+   'modelConfig.searchPlaceholder': '请输入模型名称查询',
+diff --git a/main/manager-web/src/i18n/zh_TW.js b/main/manager-web/src/i18n/zh_TW.js
+index 597d3a0b..0f6a9499 100644
+--- a/main/manager-web/src/i18n/zh_TW.js
++++ b/main/manager-web/src/i18n/zh_TW.js
+@@ -1031,6 +1031,11 @@ export default {
+   'functionDialog.copyFailed': '複製失敗，請手動複製',
+   'functionDialog.jsonFormatError': '的字段格式錯誤：JSON格式有誤',
+   'functionDialog.defaultValue': '默認值',
++  'functionDialog.selectSecretFile': '選擇私鑰文件',
++  'functionDialog.credentialConfigured': '已配置',
++  'functionDialog.leaveBlankToKeep': '留空則保留現有憑據',
++  'functionDialog.secretFileTooLarge': '私鑰文件不能超過 16KB',
++  'functionDialog.secretFileReadFailed': '讀取私鑰文件失敗',
+ 
+   // 模型配置頁面文本
+   'modelConfig.searchPlaceholder': '請輸入模型名稱查詢',
+diff --git a/main/xiaozhi-server/config.yaml b/main/xiaozhi-server/config.yaml
+index c35cc523..7184e049 100644
+--- a/main/xiaozhi-server/config.yaml
++++ b/main/xiaozhi-server/config.yaml
+@@ -130,14 +130,16 @@ context_providers:
+ 
+ # 插件的基础配置
+ plugins:
+-  # 获取天气插件的配置，这里填写你的api_key
+-  # 这个密钥是项目共用的key，用多了可能会被限制
+-  # 想稳定一点就自行申请替换，每天有1000次免费调用
+-  # 申请地址：https://console.qweather.com/#/apps/create-key/over
+-  # 申请后通过这个链接可以找到自己的apihost：https://console.qweather.com/setting?lang=zh
++  # 获取天气插件的配置。支持 api_key 和 jwt 两种认证方式，不要同时配置两种请求头。
++  # 申请地址：https://console.qweather.com/
+   get_weather:
+-    api_host: "mj7p3y7naa.re.qweatherapi.com"
+-    api_key: "a861d0d5e7bf4ee1a83d9a9e4f96d4da"
++    api_host: "你的API Host"
++    auth_type: "api_key"
++    api_key: ""
++    # JWT 模式将 auth_type 改为 jwt，并配置以下三项：
++    # project_id: "你的Project ID"
++    # credential_id: "你的Credential ID"
++    # private_key_path: "/安全目录/ed25519-private.pem"
+     default_location: "广州"
+   # 获取新闻插件的配置，这里根据需要的新闻类型传入对应的url链接，默认支持社会、科技、财经新闻
+   # 更多类型的新闻列表查看 https://www.chinanews.com.cn/rss/
+diff --git a/main/xiaozhi-server/core/utils/util.py b/main/xiaozhi-server/core/utils/util.py
+index 9b056c66..880461cf 100644
+--- a/main/xiaozhi-server/core/utils/util.py
++++ b/main/xiaozhi-server/core/utils/util.py
+@@ -490,6 +490,7 @@ def filter_sensitive_info(config: dict) -> dict:
+         "secret",
+         "access_key_secret",
+         "secret_key",
++        "private_key",
+     ]
+ 
+     def _filter_dict(d: dict) -> dict:
+@@ -606,4 +607,4 @@ def get_system_error_response(config: dict) -> str:
+     Returns:
+         str: 系统错误时的回复
+     """
+-    return config.get("system_error_response", "主人，小智现在有点忙，我们稍后再试吧。")
+\ No newline at end of file
++    return config.get("system_error_response", "主人，小智现在有点忙，我们稍后再试吧。")
+diff --git a/main/xiaozhi-server/plugins_func/functions/get_weather.py b/main/xiaozhi-server/plugins_func/functions/get_weather.py
+index c0c4118e..73e586ad 100644
+--- a/main/xiaozhi-server/plugins_func/functions/get_weather.py
++++ b/main/xiaozhi-server/plugins_func/functions/get_weather.py
+@@ -1,9 +1,13 @@
++import asyncio
++import time
++from pathlib import Path
++from typing import TYPE_CHECKING
++
+ import httpx
+-from bs4 import BeautifulSoup
++import jwt
++
+ from config.logger import setup_logging
+-from plugins_func.register import register_function, ToolType, ActionResponse, Action
+-from core.utils.util import get_ip_info
+-from typing import TYPE_CHECKING
++from plugins_func.register import Action, ActionResponse, ToolType, register_function
+ 
+ if TYPE_CHECKING:
+     from core.connection import ConnectionHandler
+@@ -37,195 +41,234 @@ GET_WEATHER_FUNCTION_DESC = {
+     },
+ }
+ 
+-HEADERS = {
+-    "User-Agent": (
+-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+-        "(KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36"
+-    )
++REQUEST_TIMEOUT_SECONDS = 8.0
++HTTP_TIMEOUT = httpx.Timeout(6.0, connect=3.0)
++BASE_HEADERS = {
++    "User-Agent": "xiaozhi-esp32-server/1.0",
++    "Accept": "application/json",
++    "Accept-Encoding": "gzip",
+ }
+ 
+-# 天气代码 https://dev.qweather.com/docs/resource/icons/#weather-icons
+-WEATHER_CODE_MAP = {
+-    "100": "晴",
+-    "101": "多云",
+-    "102": "少云",
+-    "103": "晴间多云",
+-    "104": "阴",
+-    "150": "晴",
+-    "151": "多云",
+-    "152": "少云",
+-    "153": "晴间多云",
+-    "300": "阵雨",
+-    "301": "强阵雨",
+-    "302": "雷阵雨",
+-    "303": "强雷阵雨",
+-    "304": "雷阵雨伴有冰雹",
+-    "305": "小雨",
+-    "306": "中雨",
+-    "307": "大雨",
+-    "308": "极端降雨",
+-    "309": "毛毛雨/细雨",
+-    "310": "暴雨",
+-    "311": "大暴雨",
+-    "312": "特大暴雨",
+-    "313": "冻雨",
+-    "314": "小到中雨",
+-    "315": "中到大雨",
+-    "316": "大到暴雨",
+-    "317": "暴雨到大暴雨",
+-    "318": "大暴雨到特大暴雨",
+-    "350": "阵雨",
+-    "351": "强阵雨",
+-    "399": "雨",
+-    "400": "小雪",
+-    "401": "中雪",
+-    "402": "大雪",
+-    "403": "暴雪",
+-    "404": "雨夹雪",
+-    "405": "雨雪天气",
+-    "406": "阵雨夹雪",
+-    "407": "阵雪",
+-    "408": "小到中雪",
+-    "409": "中到大雪",
+-    "410": "大到暴雪",
+-    "456": "阵雨夹雪",
+-    "457": "阵雪",
+-    "499": "雪",
+-    "500": "薄雾",
+-    "501": "雾",
+-    "502": "霾",
+-    "503": "扬沙",
+-    "504": "浮尘",
+-    "507": "沙尘暴",
+-    "508": "强沙尘暴",
+-    "509": "浓雾",
+-    "510": "强浓雾",
+-    "511": "中度霾",
+-    "512": "重度霾",
+-    "513": "严重霾",
+-    "514": "大雾",
+-    "515": "特强浓雾",
+-    "900": "热",
+-    "901": "冷",
+-    "999": "未知",
+-}
++
++class WeatherConfigError(ValueError):
++    pass
++
++
++class QWeatherApiError(RuntimeError):
++    def __init__(self, operation: str, code: str):
++        self.operation = operation
++        self.code = code
++        super().__init__(f"QWeather {operation} failed with code {code}")
++
++
++def normalize_api_host(api_host: str) -> str:
++    value = (api_host or "").strip().rstrip("/")
++    if not value:
++        raise WeatherConfigError("QWeather api_host is required")
++    if not value.startswith(("https://", "http://")):
++        value = "https://" + value
++    return value
++
++
++def normalize_language(lang: str) -> str:
++    value = (lang or "zh_CN").replace("-", "_").lower()
++    if value in {"zh_hk", "zh_tw", "zh_hant"}:
++        return "zh-hant"
++    return value.split("_", 1)[0]
++
++
++def build_auth_headers(weather_config: dict, now: int | None = None) -> dict:
++    headers = dict(BASE_HEADERS)
++    auth_type = str(weather_config.get("auth_type") or "api_key").strip().lower()
++    if auth_type == "api_key":
++        api_key = str(weather_config.get("api_key") or "").strip()
++        if not api_key:
++            raise WeatherConfigError("QWeather api_key is required")
++        headers["X-QW-Api-Key"] = api_key
++        return headers
++    if auth_type != "jwt":
++        raise WeatherConfigError("QWeather auth_type must be api_key or jwt")
++
++    project_id = str(weather_config.get("project_id") or "").strip()
++    credential_id = str(weather_config.get("credential_id") or "").strip()
++    private_key = str(weather_config.get("private_key") or "").strip()
++    private_key_path = str(weather_config.get("private_key_path") or "").strip()
++    if not private_key and private_key_path:
++        try:
++            private_key = Path(private_key_path).read_text(encoding="utf-8").strip()
++        except OSError as exception:
++            raise WeatherConfigError("QWeather private_key_path cannot be read") from exception
++    if not project_id or not credential_id or not private_key:
++        raise WeatherConfigError("QWeather JWT credentials are incomplete")
++
++    issued_at = int(time.time()) if now is None else int(now)
++    try:
++        token = jwt.encode(
++            {
++                "sub": project_id,
++                "iat": issued_at - 30,
++                "exp": issued_at + 900,
++            },
++            private_key,
++            algorithm="EdDSA",
++            headers={"kid": credential_id},
++        )
++    except Exception as exception:
++        raise WeatherConfigError("QWeather JWT could not be generated") from exception
++    headers["Authorization"] = f"Bearer {token}"
++    return headers
+ 
+ 
+-async def fetch_city_info(location, api_key, api_host):
+-    url = f"https://{api_host}/geo/v2/city/lookup?key={api_key}&location={location}&lang=zh"
+-    async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
+-        response = await client.get(url, headers=HEADERS)
++async def _request_json(
++    client: httpx.AsyncClient,
++    url: str,
++    operation: str,
++    headers: dict,
++    params: dict,
++) -> dict:
++    response = await client.get(url, headers=headers, params=params)
++    response.raise_for_status()
+     data = response.json()
+-    if data.get("error") is not None:
+-        logger.bind(tag=TAG).error(
+-            f"获取天气失败，原因：{data.get('error', {}).get('detail')}"
++    code = str(data.get("code") or "")
++    if code != "200":
++        raise QWeatherApiError(operation, code or "unknown")
++    return data
++
++
++async def fetch_weather_data(
++    weather_config: dict,
++    location: str,
++    lang: str,
++    client: httpx.AsyncClient | None = None,
++) -> tuple[dict | None, dict, dict]:
++    base_url = normalize_api_host(weather_config.get("api_host"))
++    headers = build_auth_headers(weather_config)
++    qweather_lang = normalize_language(lang)
++
++    async def fetch(active_client: httpx.AsyncClient):
++        city_data = await _request_json(
++            active_client,
++            f"{base_url}/geo/v2/city/lookup",
++            "city lookup",
++            headers,
++            {"location": location, "lang": qweather_lang, "number": 1},
++        )
++        locations = city_data.get("location") or []
++        if not locations:
++            return None, {}, {}
++        city = locations[0]
++        location_id = city.get("id")
++        if not location_id:
++            return None, {}, {}
++        common_params = {"location": location_id, "lang": qweather_lang}
++        current_task = _request_json(
++            active_client,
++            f"{base_url}/v7/weather/now",
++            "current weather",
++            headers,
++            common_params,
+         )
+-        return None
+-    return data.get("location", [])[0] if data.get("location") else None
++        daily_task = _request_json(
++            active_client,
++            f"{base_url}/v7/weather/7d",
++            "daily forecast",
++            headers,
++            common_params,
++        )
++        current, daily = await asyncio.gather(current_task, daily_task)
++        return city, current, daily
+ 
++    async def run():
++        if client is not None:
++            return await fetch(client)
++        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, trust_env=False) as active_client:
++            return await fetch(active_client)
+ 
+-async def fetch_weather_page(url):
+-    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=3.0)) as client:
+-        response = await client.get(url, headers=HEADERS)
+-    return BeautifulSoup(response.text, "html.parser") if response.status_code == 200 else None
++    return await asyncio.wait_for(run(), timeout=REQUEST_TIMEOUT_SECONDS)
+ 
+ 
+-def parse_weather_info(soup):
+-    city_name = soup.select_one("h1.c-submenu__location").get_text(strip=True)
++def format_weather_report(city: dict, current_data: dict, daily_data: dict) -> str:
++    city_name = city.get("name") or "未知"
++    current = current_data.get("now") or {}
++    weather_text = current.get("text") or "未知"
++    temperature = current.get("temp")
++    feels_like = current.get("feelsLike")
+ 
+-    current_abstract = soup.select_one(".c-city-weather-current .current-abstract")
+-    current_abstract = (
+-        current_abstract.get_text(strip=True) if current_abstract else "未知"
+-    )
++    summary_parts = [weather_text]
++    if temperature is not None:
++        summary_parts.append(f"{temperature}℃")
++    if feels_like is not None:
++        summary_parts.append(f"体感 {feels_like}℃")
++    report = f"您查询的位置是：{city_name}\n\n当前天气: " + "，".join(summary_parts) + "\n"
+ 
+-    current_basic = {}
+-    for item in soup.select(
+-        ".c-city-weather-current .current-basic .current-basic___item"
++    details = []
++    for label, key, suffix in (
++        ("湿度", "humidity", "%"),
++        ("风向", "windDir", ""),
++        ("风力", "windScale", "级"),
++        ("风速", "windSpeed", "公里/小时"),
++        ("能见度", "vis", "公里"),
++        ("气压", "pressure", "百帕"),
++        ("降水量", "precip", "毫米"),
+     ):
+-        parts = item.get_text(strip=True, separator=" ").split(" ")
+-        if len(parts) == 2:
+-            key, value = parts[1], parts[0]
+-            current_basic[key] = value
+-
+-    temps_list = []
+-    for row in soup.select(".city-forecast-tabs__row")[:7]:  # 取前7天的数据
+-        date = row.select_one(".date-bg .date").get_text(strip=True)
+-        weather_code = (
+-            row.select_one(".date-bg .icon")["src"].split("/")[-1].split(".")[0]
+-        )
+-        weather = WEATHER_CODE_MAP.get(weather_code, "未知")
+-        temps = [span.get_text(strip=True) for span in row.select(".tmp-cont .temp")]
+-        high_temp, low_temp = (temps[0], temps[-1]) if len(temps) >= 2 else (None, None)
+-        temps_list.append((date, weather, high_temp, low_temp))
++        value = current.get(key)
++        if value not in (None, ""):
++            details.append(f"  · {label}: {value}{suffix}")
++    if details:
++        report += "详细参数：\n" + "\n".join(details) + "\n"
+ 
+-    return city_name, current_abstract, current_basic, temps_list
++    report += "\n未来7天预报：\n"
++    for day in (daily_data.get("daily") or [])[:7]:
++        day_text = day.get("textDay") or "未知"
++        night_text = day.get("textNight") or ""
++        if night_text and night_text != day_text:
++            day_text = f"{day_text}转{night_text}"
++        report += (
++            f"{day.get('fxDate', '未知日期')}: {day_text}，"
++            f"气温 {day.get('tempMin', '?')}~{day.get('tempMax', '?')}℃\n"
++        )
++    return report + "\n（如需某一天的具体天气，请告诉我日期）"
+ 
+ 
+ @register_function("get_weather", GET_WEATHER_FUNCTION_DESC, ToolType.SYSTEM_CTL)
+ async def get_weather(conn: "ConnectionHandler", location: str = None, lang: str = "zh_CN"):
+-    from core.utils.cache.manager import cache_manager, CacheType
++    from core.utils.cache.manager import CacheType, cache_manager
++    from core.utils.util import get_ip_info
+ 
+     weather_config = conn.config.get("plugins", {}).get("get_weather", {})
+-    api_host = weather_config.get("api_host", "mj7p3y7naa.re.qweatherapi.com")
+-    api_key = weather_config.get("api_key", "a861d0d5e7bf4ee1a83d9a9e4f96d4da")
+     default_location = weather_config.get("default_location", "广州")
+     client_ip = conn.client_ip
+ 
+-    # 优先使用用户提供的location参数
+     if not location:
+-        # 通过客户端IP解析城市
+         if client_ip:
+-            # 先从缓存获取IP对应的城市信息
+             cached_ip_info = cache_manager.get(CacheType.IP_INFO, client_ip)
+             if cached_ip_info:
+                 location = cached_ip_info.get("city")
+             else:
+-                # 缓存未命中，调用API获取
+                 ip_info = get_ip_info(client_ip, logger)
+                 if ip_info:
+                     cache_manager.set(CacheType.IP_INFO, client_ip, ip_info)
+                     location = ip_info.get("city")
++        location = location or default_location
+ 
+-            if not location:
+-                location = default_location
+-        else:
+-            # 若无IP，使用默认位置
+-            location = default_location
+-    # 尝试从缓存获取完整天气报告
+-    weather_cache_key = f"full_weather_{location}_{lang}"
++    weather_cache_key = f"full_weather_{location}_{normalize_language(lang)}"
+     cached_weather_report = cache_manager.get(CacheType.WEATHER, weather_cache_key)
+     if cached_weather_report:
+         return ActionResponse(Action.REQLLM, cached_weather_report, None)
+ 
+-    # 缓存未命中，获取实时天气数据
+-    city_info = await fetch_city_info(location, api_key, api_host)
+-    if not city_info:
++    try:
++        city, current, daily = await fetch_weather_data(weather_config, location, lang)
++    except WeatherConfigError:
++        logger.bind(tag=TAG).warning("QWeather authentication configuration is incomplete")
++        return ActionResponse(Action.REQLLM, None, "天气服务认证配置不完整")
++    except (QWeatherApiError, httpx.HTTPError, asyncio.TimeoutError) as exception:
++        logger.bind(tag=TAG).warning(f"QWeather request failed: {type(exception).__name__}")
++        return ActionResponse(Action.REQLLM, None, "天气服务请求失败，请稍后再试")
++
++    if not city:
+         return ActionResponse(
+             Action.REQLLM, f"未找到相关的城市: {location}，请确认地点是否正确", None
+         )
+-    soup = await fetch_weather_page(city_info["fxLink"])
+-    if not soup:
+-        return ActionResponse(Action.REQLLM, None, "请求失败")
+-    city_name, current_abstract, current_basic, temps_list = parse_weather_info(soup)
+-
+-    weather_report = f"您查询的位置是：{city_name}\n\n当前天气: {current_abstract}\n"
+-
+-    # 添加有效的当前天气参数
+-    if current_basic:
+-        weather_report += "详细参数：\n"
+-        for key, value in current_basic.items():
+-            if value != "0":  # 过滤无效值
+-                weather_report += f"  · {key}: {value}\n"
+-
+-    # 添加7天预报
+-    weather_report += "\n未来7天预报：\n"
+-    for date, weather, high, low in temps_list:
+-        weather_report += f"{date}: {weather}，气温 {low}~{high}\n"
+-
+-    # 提示语
+-    weather_report += "\n（如需某一天的具体天气，请告诉我日期）"
+-
+-    # 缓存完整的天气报告
++    weather_report = format_weather_report(city, current, daily)
+     cache_manager.set(CacheType.WEATHER, weather_cache_key, weather_report)
+-
+     return ActionResponse(Action.REQLLM, weather_report, None)
+diff --git a/main/xiaozhi-server/requirements.txt b/main/xiaozhi-server/requirements.txt
+index 2ac186d5..78f6c4b9 100644
+--- a/main/xiaozhi-server/requirements.txt
++++ b/main/xiaozhi-server/requirements.txt
+@@ -36,8 +36,8 @@ chardet==5.2.0
+ aioconsole==0.8.2
+ markitdown==0.1.3
+ mcp-proxy==0.10.0
+-PyJWT==2.10.1
++PyJWT[crypto]==2.10.1
+ psutil==7.1.3
+ portalocker==3.2.0
+ Jinja2==3.1.6
+-vosk==0.3.45
+\ No newline at end of file
++vosk==0.3.45
+diff --git a/main/xiaozhi-server/tests/test_get_weather.py b/main/xiaozhi-server/tests/test_get_weather.py
+new file mode 100644
+index 00000000..ff3b60b6
+--- /dev/null
++++ b/main/xiaozhi-server/tests/test_get_weather.py
+@@ -0,0 +1,162 @@
++import sys
++import types
++import unittest
++
++import httpx
++import jwt
++from cryptography.hazmat.primitives import serialization
++from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
++
++
++class _TestLogger:
++    def bind(self, **_kwargs):
++        return self
++
++    def warning(self, *_args, **_kwargs):
++        return None
++
++
++logger_module = types.ModuleType("config.logger")
++logger_module.setup_logging = lambda: _TestLogger()
++sys.modules.setdefault("config.logger", logger_module)
++
++register_module = types.ModuleType("plugins_func.register")
++register_module.Action = types.SimpleNamespace(REQLLM="reqllm")
++register_module.ActionResponse = lambda *args: args
++register_module.ToolType = types.SimpleNamespace(SYSTEM_CTL="system")
++register_module.register_function = lambda *_args, **_kwargs: (lambda function: function)
++sys.modules.setdefault("plugins_func.register", register_module)
++
++from plugins_func.functions.get_weather import (
++    WeatherConfigError,
++    build_auth_headers,
++    fetch_weather_data,
++    format_weather_report,
++)
++
++
++class WeatherAuthenticationTests(unittest.TestCase):
++    def test_api_key_uses_header_without_bearer(self):
++        headers = build_auth_headers({"auth_type": "api_key", "api_key": "api-key"})
++
++        self.assertEqual("api-key", headers["X-QW-Api-Key"])
++        self.assertNotIn("Authorization", headers)
++
++    def test_jwt_contains_only_qweather_claims_and_eddsa_key_id(self):
++        private_key = Ed25519PrivateKey.generate()
++        pem = private_key.private_bytes(
++            serialization.Encoding.PEM,
++            serialization.PrivateFormat.PKCS8,
++            serialization.NoEncryption(),
++        ).decode()
++
++        headers = build_auth_headers(
++            {
++                "auth_type": "jwt",
++                "project_id": "project-id",
++                "credential_id": "credential-id",
++                "private_key": pem,
++            },
++            now=1_700_000_000,
++        )
++
++        token = headers["Authorization"].removeprefix("Bearer ")
++        decoded = jwt.decode(
++            token,
++            private_key.public_key(),
++            algorithms=["EdDSA"],
++            options={"verify_exp": False, "verify_iat": False},
++        )
++        jwt_headers = jwt.get_unverified_header(token)
++        self.assertEqual(
++            {"sub": "project-id", "iat": 1_699_999_970, "exp": 1_700_000_900},
++            decoded,
++        )
++        self.assertEqual("EdDSA", jwt_headers["alg"])
++        self.assertEqual("credential-id", jwt_headers["kid"])
++        self.assertNotIn("X-QW-Api-Key", headers)
++
++    def test_incomplete_jwt_configuration_is_rejected(self):
++        with self.assertRaises(WeatherConfigError):
++            build_auth_headers({"auth_type": "jwt", "project_id": "project-id"})
++
++
++class WeatherApiTests(unittest.IsolatedAsyncioTestCase):
++    async def test_uses_city_current_and_daily_json_endpoints(self):
++        requests = []
++
++        async def handler(request):
++            requests.append(request)
++            if request.url.path == "/geo/v2/city/lookup":
++                return httpx.Response(
++                    200,
++                    json={"code": "200", "location": [{"id": "101010100", "name": "北京"}]},
++                )
++            if request.url.path == "/v7/weather/now":
++                return httpx.Response(200, json={"code": "200", "now": {"text": "晴", "temp": "26"}})
++            if request.url.path == "/v7/weather/7d":
++                return httpx.Response(
++                    200,
++                    json={
++                        "code": "200",
++                        "daily": [{"fxDate": "2026-08-11", "textDay": "晴", "textNight": "晴",
++                                   "tempMin": "20", "tempMax": "30"}],
++                    },
++                )
++            return httpx.Response(404)
++
++        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
++            city, current, daily = await fetch_weather_data(
++                {"api_host": "weather.example", "auth_type": "api_key", "api_key": "secret"},
++                "北京",
++                "zh_CN",
++                client,
++            )
++
++        self.assertEqual("北京", city["name"])
++        self.assertEqual("晴", current["now"]["text"])
++        self.assertEqual("2026-08-11", daily["daily"][0]["fxDate"])
++        self.assertEqual(
++            {"/geo/v2/city/lookup", "/v7/weather/now", "/v7/weather/7d"},
++            {request.url.path for request in requests},
++        )
++        self.assertTrue(all(request.headers["X-QW-Api-Key"] == "secret" for request in requests))
++        self.assertTrue(all("authorization" not in request.headers for request in requests))
++
++    async def test_current_and_daily_requests_run_concurrently(self):
++        started = []
++        release = __import__("asyncio").Event()
++
++        async def handler(request):
++            if request.url.path == "/geo/v2/city/lookup":
++                return httpx.Response(200, json={"code": "200", "location": [{"id": "1", "name": "城市"}]})
++            started.append(request.url.path)
++            if len(started) == 2:
++                release.set()
++            await release.wait()
++            key = "now" if request.url.path.endswith("now") else "daily"
++            value = {} if key == "now" else []
++            return httpx.Response(200, json={"code": "200", key: value})
++
++        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
++            await fetch_weather_data(
++                {"api_host": "weather.example", "api_key": "secret"}, "城市", "zh_CN", client
++            )
++
++        self.assertCountEqual(["/v7/weather/now", "/v7/weather/7d"], started)
++
++    def test_formats_current_and_seven_day_json(self):
++        report = format_weather_report(
++            {"name": "北京"},
++            {"now": {"text": "晴", "temp": "26", "feelsLike": "27", "humidity": "40"}},
++            {"daily": [{"fxDate": "2026-08-11", "textDay": "晴", "textNight": "多云",
++                        "tempMin": "20", "tempMax": "30"}]},
++        )
++
++        self.assertIn("当前天气: 晴，26℃，体感 27℃", report)
++        self.assertIn("湿度: 40%", report)
++        self.assertIn("2026-08-11: 晴转多云，气温 20~30℃", report)
++
++
++if __name__ == "__main__":
++    unittest.main()

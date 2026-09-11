@@ -1,0 +1,304 @@
+diff --git a/main/xiaozhi-server/config.yaml b/main/xiaozhi-server/config.yaml
+index 0f694fba..83ddb3f5 100644
+--- a/main/xiaozhi-server/config.yaml
++++ b/main/xiaozhi-server/config.yaml
+@@ -107,6 +107,10 @@ plugins:
+       - 卧室,台灯,switch.iot_cn_831898993_socn1_on_p_2_1
+     base_url: http://homeassistant.local:8123
+     api_key: 你的home assistant api访问令牌
++  dlna_play_music:
++    dms_name: # 音乐服务器名称(支持模糊查询)，将从此服务器搜索音乐文件地址，留空将选择第搜索到的第一个设为服务器
++    dmr_name: # 音乐播放设备名称(支持模糊查询)，将音乐推送到此设备进行播放，留空将选择第搜索到的第一个设为播放设备
++    refresh_time: 300 # 刷新音乐列表的时间间隔，单位为秒
+   play_music:
+     music_dir: "./music"  # 音乐文件存放路径，将从该目录及子目录下搜索音乐文件
+     music_ext: # 音乐文件类型，p3格式效率最高
+@@ -175,12 +179,15 @@ Intent:
+       - change_role
+       - get_weather
+       - get_news
+-      # play_music是服务器自带的音乐播放，hass_play_music是通过home assistant控制的独立外部程序音乐播放
+-      # 如果用了hass_play_music，就不要开启play_music，两者只留一个
++      # 1. play_music 是服务器自带的音乐播放
++      # 2. hass_play_music 是通过 home assistant 控制的独立外部程序音乐播放
++      # 3. dlna_play_music 是通过 dlna dms 服务获取 music 推送到 dlna dmr 设备进行音乐播放
++      # 三种方式都可以播放音乐，只能选择一种方式
+       - play_music
+-      #- hass_get_state
+-      #- hass_set_state
+-      #- hass_play_music
++      # - dlna_play_music
++      # - hass_get_state
++      # - hass_set_state
++      # - hass_play_music
+ 
+ Memory:
+   mem0ai:
+diff --git a/main/xiaozhi-server/docker-compose.yml b/main/xiaozhi-server/docker-compose.yml
+index 34bd1c3e..1648eb3d 100644
+--- a/main/xiaozhi-server/docker-compose.yml
++++ b/main/xiaozhi-server/docker-compose.yml
+@@ -13,6 +13,8 @@ services:
+     ports:
+       # ws服务端
+       - "8000:8000"
++    # 使用 dlna_play_music 插件需要开启 host 网络模式，才可以搜索到局域网设备
++    # network_mode: host
+     volumes:
+       # 配置文件目录
+       - ./data:/opt/xiaozhi-esp32-server/data
+diff --git a/main/xiaozhi-server/docker-compose_all.yml b/main/xiaozhi-server/docker-compose_all.yml
+index eac7bef5..17283825 100644
+--- a/main/xiaozhi-server/docker-compose_all.yml
++++ b/main/xiaozhi-server/docker-compose_all.yml
+@@ -15,6 +15,8 @@ services:
+     ports:
+       # ws服务端
+       - "8000:8000"
++    # 使用 dlna_play_music 插件需要开启 host 网络模式，才可以搜索到局域网设备
++    # network_mode: host
+     security_opt:
+       - seccomp:unconfined
+     environment:
+diff --git a/main/xiaozhi-server/plugins_func/functions/dlna_play_music.py b/main/xiaozhi-server/plugins_func/functions/dlna_play_music.py
+new file mode 100644
+index 00000000..c9ea84eb
+--- /dev/null
++++ b/main/xiaozhi-server/plugins_func/functions/dlna_play_music.py
+@@ -0,0 +1,182 @@
++from config.logger import setup_logging 
++import re
++import time
++import random
++import asyncio
++import difflib
++import traceback
++  
++from plugins_func.register import register_function,ToolType, ActionResponse, Action
++from async_upnp_client.aiohttp import AiohttpRequester
++from async_upnp_client.client_factory import UpnpFactory
++from async_upnp_client.client import UpnpDevice
++from async_upnp_client.profiles.dlna import DmrDevice, DmsDevice
++
++TAG = __name__
++logger = setup_logging()
++
++DLNA_MUSIC_CACHE = {}
++FUNCTION_NAME = 'dlna_play_music'
++
++dlna_play_music_function_desc = {
++                "type": "function",
++                "function": {
++                    "name": FUNCTION_NAME,
++                    "description": "唱歌、听歌、播放音乐的方法。",
++                    "parameters": {
++                        "type": "object",
++                        "properties": {
++                            "song_name": {
++                                "type": "string",
++                                "description": "歌曲名称，如果用户没有指定具体歌名则为'random', 明确指定的时返回音乐的名字 示例: ```用户:播放两只老虎\n参数：两只老虎``` ```用户:播放音乐 \n参数：random ```"
++                            }
++                        },
++                        "required": ["song_name"]
++                    }
++                }
++            }
++
++
++@register_function(FUNCTION_NAME, dlna_play_music_function_desc, ToolType.SYSTEM_CTL)
++def dlna_play_music(conn, song_name: str):
++    try:
++        music_intent = f"播放音乐 {song_name}" if song_name != "random" else "随机播放音乐"
++
++        # 执行音乐播放命令
++        future = asyncio.run_coroutine_threadsafe(
++            play_dlna_music(conn, music_intent),
++            conn.loop
++        )
++
++        response = future.result()
++        return ActionResponse(action=Action.RESPONSE, result="指令已接收", response=response)
++    except Exception as e:
++        logger.bind(tag=TAG).error(f"处理音乐意图错误: {e}")
++
++async def _discover_dlna_device(factory:UpnpFactory ,upnpDevice: UpnpDevice, name: str = None) -> UpnpDevice:
++    """发现 DLNA 设备"""
++    discoveries = await upnpDevice.async_search(source=("0.0.0.0", 0),timeout=1)
++    
++    if discoveries:
++        for item in list(discoveries):
++            location = item["location"]
++            device = await factory.async_create_device(description_url=location)
++            if name == None or difflib.SequenceMatcher(None, name, device.friendly_name).ratio() > 0.5:
++                logger.bind(tag=TAG).info(f"播放设备: {device.friendly_name}")
++                return upnpDevice(device, None)
++
++    return
++
++def _extract_song_name(text):
++    """从用户输入中提取歌名"""
++    for keyword in ["播放音乐"]:
++        if keyword in text:
++            parts = text.split(keyword)
++            if len(parts) > 1:
++                return parts[1].strip()
++    return None
++
++
++def _find_best_match(potential_song, musics):
++    """查找最匹配的歌曲"""
++    best_match = None
++    highest_ratio = 0
++
++    for item in musics:
++        ratio = difflib.SequenceMatcher(None, potential_song, item[0]).ratio()
++        if ratio > highest_ratio and ratio > 0.4:
++            highest_ratio = ratio
++            best_match = item
++    return best_match
++
++async def _get_musics() -> list:
++    global DLNA_MUSIC_CACHE
++    """获取音乐文件列表"""
++    requester = AiohttpRequester()
++    factory = UpnpFactory(requester, non_strict=True)
++    dms_device = await _discover_dlna_device(factory,DmsDevice, DLNA_MUSIC_CACHE["dms_name"])
++    DLNA_MUSIC_CACHE["dlna_dms_device"] = dms_device
++    DLNA_MUSIC_CACHE["dlna_dmr_device"] = await _discover_dlna_device(factory,DmrDevice,DLNA_MUSIC_CACHE["dmr_name"])
++
++    musics = []
++    items = await dms_device.async_browse_direct_children( object_id="1$4")
++    for item in items[0]:
++        if item.res:
++            musics.append([item.title, item.res[0].uri]) 
++
++    return musics
++
++async def initialize_music_handler(conn):
++    global DLNA_MUSIC_CACHE
++    if DLNA_MUSIC_CACHE == {}:
++        if FUNCTION_NAME in conn.config["plugins"]:
++            music_config = conn.config["plugins"][FUNCTION_NAME]
++            DLNA_MUSIC_CACHE["music_config"] = music_config
++            DLNA_MUSIC_CACHE["dms_name"] = music_config.get("dms_name")
++            DLNA_MUSIC_CACHE["dmr_name"] = music_config.get("dmr_name")
++            DLNA_MUSIC_CACHE["refresh_time"] = music_config.get("refresh_time", 60)
++        else:
++            DLNA_MUSIC_CACHE["refresh_time"] = 60 
++
++        # 获取音乐文件列表
++        DLNA_MUSIC_CACHE["musics"] = await _get_musics()
++        DLNA_MUSIC_CACHE["scan_time"] = time.time()
++    return DLNA_MUSIC_CACHE
++
++
++async def play_dlna_music(conn, text):
++    DLNA_MUSIC_CACHE = await initialize_music_handler(conn)
++
++    """处理音乐播放指令"""
++    clean_text = re.sub(r'[^\w\s]', '', text).strip()
++    logger.bind(tag=TAG).debug(f"检查是否是音乐命令: {clean_text}")
++
++    music = None
++    # 尝试匹配具体歌名
++    if DLNA_MUSIC_CACHE["dlna_dms_device"]:
++        if time.time() - DLNA_MUSIC_CACHE["scan_time"] > DLNA_MUSIC_CACHE["refresh_time"]:
++            # 刷新音乐文件列表
++            DLNA_MUSIC_CACHE["musics"] = await _get_musics()
++            DLNA_MUSIC_CACHE["scan_time"] = time.time()
++
++        potential_song = _extract_song_name(clean_text)
++        if potential_song:
++            music = _find_best_match(potential_song, DLNA_MUSIC_CACHE["musics"])
++
++    """播放 DLNA 音乐文件"""
++    try:
++        if not DLNA_MUSIC_CACHE["dlna_dms_device"]:
++            logger.bind(tag=TAG).error(f"DLNA DMS 不存在")
++            return
++        
++        dmr_device = DLNA_MUSIC_CACHE["dlna_dmr_device"]
++        if not dmr_device:
++            logger.bind(tag=TAG).error(f"DLNA DMR 不存在")
++            return
++
++        # 确保路径正确性
++        if music:
++            logger.bind(tag=TAG).info(f"找到最匹配的歌曲: {music}")
++            selected_music = music
++        else:
++            if not DLNA_MUSIC_CACHE["musics"]:
++                logger.bind(tag=TAG).error("未找到音乐文件")
++                return
++            selected_music = random.choice(DLNA_MUSIC_CACHE["musics"])
++             
++        # Stop current playing media
++        if dmr_device.can_stop:
++            await dmr_device.async_stop()
++        # Queue media
++        await dmr_device.async_set_transport_uri(
++                media_title=selected_music[0],
++                media_url=selected_music[1],
++            )
++        # Play it
++        await dmr_device.async_wait_for_can_play()
++        await dmr_device.async_play()
++        return f"正在播放{selected_music[0]}"
++
++    except Exception as e:
++        logger.bind(tag=TAG).error(f"播放音乐失败: {str(e)}")
++        logger.bind(tag=TAG).error(f"详细错误: {traceback.format_exc()}")
+diff --git a/main/xiaozhi-server/requirements.txt b/main/xiaozhi-server/requirements.txt
+index 66128cff..ad1c6cc7 100755
+--- a/main/xiaozhi-server/requirements.txt
++++ b/main/xiaozhi-server/requirements.txt
+@@ -1,27 +1,28 @@
+-pyyml==0.0.2
+-torch==2.2.2
+-silero_vad==5.1.2
+-websockets==14.2
+-opuslib_next==1.1.2
+-numpy==1.26.4
+-pydub==0.25.1
++aiohttp_cors==0.7.0
++aiohttp==3.9.3
++async_upnp_client==0.44.0
++bs4==0.0.2
++cnlunar==0.2.0
++cozepy==0.12.0
++edge_tts==7.0.0
+ funasr==1.2.3
+-torchaudio==2.2.2
+-openai==1.61.0
+ google-generativeai==0.8.4
+-edge_tts==7.0.0
+ httpx==0.27.2
+-aiohttp==3.9.3
+-aiohttp_cors==0.7.0
+-ormsgpack==1.7.0
+-ruamel.yaml==0.18.10
+ loguru==0.7.3
+-requests==2.32.3
+-cozepy==0.12.0
++mcp==1.4.1
+ mem0ai==0.1.62
+-bs4==0.0.2
+ modelscope==1.23.2
+-sherpa_onnx==1.11.0
+-mcp==1.4.1
+-cnlunar==0.2.0
++numpy==1.26.4
++openai==1.61.0
++opuslib_next==1.1.2
++ormsgpack==1.7.0
++pydub==0.25.1
+ PySocks==1.7.1
++pyyml==0.0.2
++requests==2.32.3
++ruamel.yaml==0.18.10
++sherpa_onnx==1.11.0
++silero_vad==5.1.2
++torch==2.2.2
++torchaudio==2.2.2
++websockets==14.2
+\ No newline at end of file

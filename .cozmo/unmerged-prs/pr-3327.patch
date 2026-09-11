@@ -1,0 +1,1914 @@
+diff --git a/.github/workflows/manager-api-ci.yml b/.github/workflows/manager-api-ci.yml
+new file mode 100644
+index 00000000..783d1c02
+--- /dev/null
++++ b/.github/workflows/manager-api-ci.yml
+@@ -0,0 +1,38 @@
++name: Manager API CI
++
++on:
++  push:
++    paths:
++      - 'main/manager-api/**'
++      - '.github/workflows/manager-api-ci.yml'
++  pull_request:
++    paths:
++      - 'main/manager-api/**'
++      - '.github/workflows/manager-api-ci.yml'
++  workflow_dispatch:
++
++permissions:
++  contents: read
++
++jobs:
++  test-and-package:
++    runs-on: ubuntu-latest
++    timeout-minutes: 30
++    defaults:
++      run:
++        working-directory: main/manager-api
++    steps:
++      - uses: actions/checkout@v5
++      - uses: actions/setup-java@v5
++        with:
++          distribution: temurin
++          java-version: '21'
++          cache: maven
++          cache-dependency-path: main/manager-api/pom.xml
++      - name: Run scoped integration credential tests
++        run: >-
++          mvn --batch-mode --no-transfer-progress
++          -Dtest=IntegrationCredentialServiceImplTest,IntegrationCredentialFilterTest,ShiroConfigTest,ExplorerIntegrationControllerTest,AgentServiceIntegrationOwnerTest,AgentSnapshotIntegrationActorTest,AgentSnapshotServiceImplTest,DeviceServiceImplOwnershipTest
++          test
++      - name: Package Manager API
++        run: mvn --batch-mode --no-transfer-progress -DskipTests package
+diff --git a/docs/integration-credentials.md b/docs/integration-credentials.md
+new file mode 100644
+index 00000000..d0d5b955
+--- /dev/null
++++ b/docs/integration-credentials.md
+@@ -0,0 +1,69 @@
++# 服务端集成凭据
++
++Manager 的普通用户 token 属于网页登录会话，不应作为长期的 server-to-server 凭据。
++`server.secret` 是 Xiaozhi Server 内部接口的信任边界，也不应交给外部集成。
++
++Manager 为 Explorer 提供了独立、可撤销、绑定资源 owner 的 integration credential。
++数据库只保存 token 的 SHA-256 摘要，原始 token 只在创建成功时返回一次。
++
++## 为什么不复用已有认证
++
++- `SysUserTokenServiceImpl` 的普通 token 是一条按用户保存的可变登录会话记录；登录响应只有
++  access token 和相对有效期，没有 refresh token 或 renew endpoint，退出登录和修改密码还会
++  立即让该记录过期。登录本身还依赖图形验证码和 SM2 密码解密，因此不适合作为机器身份。
++- `server.secret` 只保护 Xiaozhi Server 内部的 `/config/**`、通讯录呼叫和聊天上报/摘要等路由，
++  不覆盖 Explorer 所需的 Agent/Device API；扩大它的用途还会混淆内部服务器与 Explorer 两个主体。
++- integration credential 使用独立 token namespace、独立数据库记录和独立路由前缀，不继承网页
++  会话的过期/刷新行为，也不能访问 `server.secret` 的内部接口。
++
++## 管理员操作
++
++以超级管理员普通登录 token 调用：
++
++- `POST /admin/integration-credentials` 创建 Explorer credential。
++- `GET /admin/integration-credentials` 查看不含 secret/hash 的元数据。
++- `POST /admin/integration-credentials/{credentialId}/revoke` 立即撤销。
++
++创建请求体：
++
++```json
++{
++  "name": "Explorer classroom",
++  "ownerUserId": 123,
++  "expiresAt": null
++}
++```
++
++`ownerUserId` 决定 Explorer 可读写哪个 Manager 账号所属的 Agent/Device。
++该用户被停用时，credential 也会立即失效。
++
++创建响应中的 `token` 必须立即存入调用方的正式 secret store。不得把它写入 Git、日志、URL 或浏览器持久存储。
++
++## Explorer 固定权限
++
++凭据仅在 `Authorization: Bearer <integration-token>` 访问
++`/integration/explorer/**` 时有效。当前只存在以下路由：
++
++- Agent 读取、创建。
++- Agent 的 `agentName` / `systemPrompt` / `ttsVoiceId` / `ttsLanguage` 更新。
++- 指定 Agent 的 Device 列表读取。
++- Device bind-by-code、manual-add 和 unbind；manual-add 的 `appVersion` 由 Manager 固定为
++  `explorer-enrollment`，调用方不能扩大该字段。
++
++所有 Agent/Device 操作都强制限定在 credential 绑定的 owner。
++
++该 credential 不能访问：
++
++- `/agent/**` 和 `/device/**` 普通用户路由。
++- Agent 删除、其他账号的 Agent/Device。
++- 用户管理、Provider 配置、系统配置。
++- `server.secret` 管理或 `/config/**` 内部路由。
++
++## 轮换
++
++1. 创建新 credential。
++2. 把新 token 写入调用方的正式 secret store 并部署。
++3. 验证读取与允许的写入操作。
++4. 撤销旧 credential。
++
++先上线新凭据、后撤销旧凭据，可避免轮换窗口中断。
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/agent/service/AgentService.java b/main/manager-api/src/main/java/xiaozhi/modules/agent/service/AgentService.java
+index 2ccf12dc..b4719db1 100644
+--- a/main/manager-api/src/main/java/xiaozhi/modules/agent/service/AgentService.java
++++ b/main/manager-api/src/main/java/xiaozhi/modules/agent/service/AgentService.java
+@@ -45,6 +45,8 @@ public interface AgentService extends BaseService<AgentEntity> {
+      */
+     AgentInfoVO getAgentById(String id, Long userId);
+ 
++    AgentInfoVO getAgentByIdForOwner(String id, Long ownerUserId);
++
+     /**
+      * 插入智能体
+      *
+@@ -102,6 +104,8 @@ public interface AgentService extends BaseService<AgentEntity> {
+      */
+     boolean checkAgentPermission(String agentId, Long userId);
+ 
++    boolean checkAgentOwnership(String agentId, Long ownerUserId);
++
+     /**
+      * 更新智能体
+      *
+@@ -119,6 +123,8 @@ public interface AgentService extends BaseService<AgentEntity> {
+      */
+     void updateAgentById(String agentId, AgentUpdateDTO dto, Long userId);
+ 
++    void updateAgentByIdForOwner(String agentId, AgentUpdateDTO dto, Long ownerUserId);
++
+     /**
+      * 根据设备MAC地址更新当前用户有权访问的智能体记忆
+      *
+@@ -153,5 +159,7 @@ public interface AgentService extends BaseService<AgentEntity> {
+      */
+     String createAgent(AgentCreateDTO dto);
+ 
++    String createAgent(AgentCreateDTO dto, Long userId);
++
+ 
+ }
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/agent/service/AgentSnapshotService.java b/main/manager-api/src/main/java/xiaozhi/modules/agent/service/AgentSnapshotService.java
+index 57e03ebf..e6f6e829 100644
+--- a/main/manager-api/src/main/java/xiaozhi/modules/agent/service/AgentSnapshotService.java
++++ b/main/manager-api/src/main/java/xiaozhi/modules/agent/service/AgentSnapshotService.java
+@@ -9,6 +9,8 @@ import xiaozhi.modules.agent.vo.AgentSnapshotVO;
+ public interface AgentSnapshotService extends BaseService<AgentSnapshotEntity> {
+     void createSnapshot(String agentId, String source);
+ 
++    void createSnapshot(String agentId, String source, Long actorUserId);
++
+     PageData<AgentSnapshotVO> page(String agentId, AgentSnapshotPageDTO params);
+ 
+     AgentSnapshotVO getSnapshot(String agentId, String snapshotId);
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentServiceImpl.java b/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentServiceImpl.java
+index 8001c205..4768019b 100644
+--- a/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentServiceImpl.java
++++ b/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentServiceImpl.java
+@@ -126,6 +126,13 @@ public class AgentServiceImpl extends BaseServiceImpl<AgentDao, AgentEntity> imp
+         return agent;
+     }
+ 
++    @Override
++    public AgentInfoVO getAgentByIdForOwner(String id, Long ownerUserId) {
++        AgentInfoVO agent = getAgentById(id);
++        requireAgentOwnership(agent, ownerUserId);
++        return agent;
++    }
++
+     private AgentEntity getAgentEntityOrThrow(String agentId) {
+         AgentEntity agent = agentDao.selectById(agentId);
+         if (agent == null) {
+@@ -162,6 +169,12 @@ public class AgentServiceImpl extends BaseServiceImpl<AgentDao, AgentEntity> imp
+         }
+     }
+ 
++    private void requireAgentOwnership(AgentEntity agent, Long ownerUserId) {
++        if (agent == null || ownerUserId == null || !ownerUserId.equals(agent.getUserId())) {
++            throw new RenException(ErrorCode.NO_PERMISSION);
++        }
++    }
++
+     private boolean hasDevicePermission(DeviceEntity device, Long userId) {
+         if (device == null) {
+             return false;
+@@ -342,6 +355,12 @@ public class AgentServiceImpl extends BaseServiceImpl<AgentDao, AgentEntity> imp
+         return hasAgentPermission(agent, userId);
+     }
+ 
++    @Override
++    public boolean checkAgentOwnership(String agentId, Long ownerUserId) {
++        AgentEntity agent = agentDao.selectById(agentId);
++        return agent != null && ownerUserId != null && ownerUserId.equals(agent.getUserId());
++    }
++
+     // 根据id更新智能体信息
+     @Override
+     @Transactional(rollbackFor = Exception.class)
+@@ -355,6 +374,13 @@ public class AgentServiceImpl extends BaseServiceImpl<AgentDao, AgentEntity> imp
+         updateAgentById(agentId, dto, userId, true);
+     }
+ 
++    @Override
++    @Transactional(rollbackFor = Exception.class)
++    public void updateAgentByIdForOwner(String agentId, AgentUpdateDTO dto, Long ownerUserId) {
++        requireAgentOwnership(getAgentEntityOrThrow(agentId), ownerUserId);
++        updateAgentById(agentId, dto, ownerUserId, true);
++    }
++
+     // 根据id更新智能体信息
+     @Override
+     @Transactional(rollbackFor = Exception.class)
+@@ -363,6 +389,7 @@ public class AgentServiceImpl extends BaseServiceImpl<AgentDao, AgentEntity> imp
+     }
+ 
+     private void updateAgentById(String agentId, AgentUpdateDTO dto, Long userId, boolean createSnapshot) {
++        Long actorUserId = userId != null ? userId : SecurityUser.getUserId();
+         AgentEntity lockedAgent = agentDao.selectByIdForUpdate(agentId);
+         if (lockedAgent == null) {
+             throw new RenException(ErrorCode.AGENT_NOT_FOUND);
+@@ -377,7 +404,7 @@ public class AgentServiceImpl extends BaseServiceImpl<AgentDao, AgentEntity> imp
+         AgentEntity existingEntity = this.getAgentById(agentId);
+         if (createSnapshot) {
+             int currentVersionNo = agentSnapshotService.getCurrentVersionNo(agentId);
+-            agentSnapshotService.createSnapshot(agentId, currentVersionNo == 0 ? "initial" : "current");
++            createAgentSnapshot(agentId, currentVersionNo == 0 ? "initial" : "current", userId);
+         }
+ 
+         // 只更新提供的非空字段
+@@ -500,8 +527,7 @@ public class AgentServiceImpl extends BaseServiceImpl<AgentDao, AgentEntity> imp
+         }
+ 
+         // 设置更新者信息
+-        UserDetail user = SecurityUser.getUser();
+-        existingEntity.setUpdater(user.getId());
++        existingEntity.setUpdater(actorUserId);
+         existingEntity.setUpdatedAt(new Date());
+ 
+         // 更新记忆策略
+@@ -539,7 +565,7 @@ public class AgentServiceImpl extends BaseServiceImpl<AgentDao, AgentEntity> imp
+         }
+         this.updateById(existingEntity);
+         if (createSnapshot) {
+-            agentSnapshotService.createSnapshot(agentId, "config");
++            createAgentSnapshot(agentId, "config", userId);
+         }
+     }
+ 
+@@ -587,11 +613,20 @@ public class AgentServiceImpl extends BaseServiceImpl<AgentDao, AgentEntity> imp
+         return !"Intent_function_call".equals(intentModelId);
+     }
+ 
+-    @Override
+-    @Transactional(rollbackFor = Exception.class)
+-    public String createAgent(AgentCreateDTO dto) {
+-        // 转换为实体
+-        AgentEntity entity = ConvertUtils.sourceToTarget(dto, AgentEntity.class);
++    @Override
++    @Transactional(rollbackFor = Exception.class)
++    public String createAgent(AgentCreateDTO dto) {
++        return createAgent(dto, SecurityUser.getUserId());
++    }
++
++    @Override
++    @Transactional(rollbackFor = Exception.class)
++    public String createAgent(AgentCreateDTO dto, Long userId) {
++        if (userId == null) {
++            throw new RenException(ErrorCode.USER_NOT_LOGIN);
++        }
++        // 转换为实体
++        AgentEntity entity = ConvertUtils.sourceToTarget(dto, AgentEntity.class);
+ 
+         // 获取默认模板
+         AgentTemplateEntity template = agentTemplateService.getDefaultTemplate();
+@@ -655,9 +690,8 @@ public class AgentServiceImpl extends BaseServiceImpl<AgentDao, AgentEntity> imp
+         }
+ 
+         // 设置用户ID和创建者信息
+-        UserDetail user = SecurityUser.getUser();
+-        entity.setUserId(user.getId());
+-        entity.setCreator(user.getId());
++        entity.setUserId(userId);
++        entity.setCreator(userId);
+         entity.setCreatedAt(new Date());
+ 
+         // 保存智能体
+@@ -689,10 +723,18 @@ public class AgentServiceImpl extends BaseServiceImpl<AgentDao, AgentEntity> imp
+         }
+         // 保存默认插件
+         agentPluginMappingService.saveBatch(toInsert, IRepository.DEFAULT_BATCH_SIZE);
+-        agentSnapshotService.createSnapshot(entity.getId(), "initial");
++        createAgentSnapshot(entity.getId(), "initial", userId);
+         return entity.getId();
+     }
+ 
++    private void createAgentSnapshot(String agentId, String source, Long explicitActorUserId) {
++        if (explicitActorUserId == null) {
++            agentSnapshotService.createSnapshot(agentId, source);
++        } else {
++            agentSnapshotService.createSnapshot(agentId, source, explicitActorUserId);
++        }
++    }
++
+     private String defaultIfBlank(String value, String defaultValue) {
+         return StringUtils.isBlank(value) ? defaultValue : value;
+     }
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentSnapshotServiceImpl.java b/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentSnapshotServiceImpl.java
+index 0cab47fb..0de5865f 100644
+--- a/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentSnapshotServiceImpl.java
++++ b/main/manager-api/src/main/java/xiaozhi/modules/agent/service/impl/AgentSnapshotServiceImpl.java
+@@ -100,6 +100,12 @@ public class AgentSnapshotServiceImpl extends BaseServiceImpl<AgentSnapshotDao,
+     @Override
+     @Transactional(rollbackFor = Exception.class)
+     public void createSnapshot(String agentId, String source) {
++        createSnapshot(agentId, source, SecurityUser.getUserId());
++    }
++
++    @Override
++    @Transactional(rollbackFor = Exception.class)
++    public void createSnapshot(String agentId, String source, Long actorUserId) {
+         lockAgent(agentId);
+         AgentInfoVO agent = getAgentInfo(agentId);
+         AgentSnapshotDataDTO snapshotData = buildSnapshotData(agent);
+@@ -115,7 +121,8 @@ public class AgentSnapshotServiceImpl extends BaseServiceImpl<AgentSnapshotDao,
+             return;
+         }
+ 
+-        insertSnapshot(agentId, agent.getUserId(), source, snapshotData, changedFields);
++        insertSnapshot(agentId, agent.getUserId(), source, snapshotData, changedFields,
++                null, null, true, actorUserId);
+     }
+ 
+     @Override
+@@ -275,6 +282,13 @@ public class AgentSnapshotServiceImpl extends BaseServiceImpl<AgentSnapshotDao,
+     private void insertSnapshot(String agentId, Long userId, String source, AgentSnapshotDataDTO snapshotData,
+             List<String> changedFields, String restoreFromSnapshotId, Integer restoreFromVersionNo,
+             boolean pruneAfterInsert) {
++        insertSnapshot(agentId, userId, source, snapshotData, changedFields, restoreFromSnapshotId,
++                restoreFromVersionNo, pruneAfterInsert, SecurityUser.getUserId());
++    }
++
++    private void insertSnapshot(String agentId, Long userId, String source, AgentSnapshotDataDTO snapshotData,
++            List<String> changedFields, String restoreFromSnapshotId, Integer restoreFromVersionNo,
++            boolean pruneAfterInsert, Long actorUserId) {
+         AgentSnapshotEntity entity = new AgentSnapshotEntity();
+         entity.setId(UUID.randomUUID().toString().replace("-", ""));
+         entity.setAgentId(agentId);
+@@ -284,7 +298,7 @@ public class AgentSnapshotServiceImpl extends BaseServiceImpl<AgentSnapshotDao,
+         entity.setSource(StringUtils.defaultIfBlank(source, SOURCE_CONFIG));
+         entity.setRestoreFromSnapshotId(restoreFromSnapshotId);
+         entity.setRestoreFromVersionNo(restoreFromVersionNo);
+-        entity.setCreator(SecurityUser.getUserId());
++        entity.setCreator(actorUserId);
+         entity.setCreatedAt(new Date());
+         entity.setRedactionVersion(CURRENT_REDACTION_VERSION);
+         int inserted = agentSnapshotDao.insertWithNextVersion(entity);
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/device/service/DeviceService.java b/main/manager-api/src/main/java/xiaozhi/modules/device/service/DeviceService.java
+index b663ceb6..040ddb7a 100644
+--- a/main/manager-api/src/main/java/xiaozhi/modules/device/service/DeviceService.java
++++ b/main/manager-api/src/main/java/xiaozhi/modules/device/service/DeviceService.java
+@@ -45,6 +45,8 @@ public interface DeviceService extends BaseService<DeviceEntity> {
+      */
+     Boolean deviceActivation(String agentId, String activationCode);
+ 
++    Boolean deviceActivation(String agentId, String activationCode, Long userId);
++
+     /**
+      * 删除此用户的所有设备
+      * 
+@@ -138,4 +140,4 @@ public interface DeviceService extends BaseService<DeviceEntity> {
+      */
+     Object callDeviceTool(String deviceId, String toolName, Map<String, Object> arguments);
+ 
+-    }
+\ No newline at end of file
++    }
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/device/service/impl/DeviceServiceImpl.java b/main/manager-api/src/main/java/xiaozhi/modules/device/service/impl/DeviceServiceImpl.java
+index 5acde875..e2f51cb1 100644
+--- a/main/manager-api/src/main/java/xiaozhi/modules/device/service/impl/DeviceServiceImpl.java
++++ b/main/manager-api/src/main/java/xiaozhi/modules/device/service/impl/DeviceServiceImpl.java
+@@ -99,9 +99,17 @@ public class DeviceServiceImpl extends BaseServiceImpl<DeviceDao, DeviceEntity>
+ 
+     @Override
+     public Boolean deviceActivation(String agentId, String activationCode) {
++        return deviceActivation(agentId, activationCode, SecurityUser.getUserId());
++    }
++
++    @Override
++    public Boolean deviceActivation(String agentId, String activationCode, Long userId) {
+         if (StringUtils.isBlank(activationCode)) {
+             throw new RenException(ErrorCode.ACTIVATION_CODE_EMPTY);
+         }
++        if (userId == null) {
++            throw new RenException(ErrorCode.USER_NOT_LOGIN);
++        }
+         String deviceKey = RedisKeys.getOtaActivationCode(activationCode);
+         String cacheDeviceId = (String) redisUtils.get(deviceKey);
+         if (StringUtils.isBlank(cacheDeviceId)) {
+@@ -126,11 +134,6 @@ public class DeviceServiceImpl extends BaseServiceImpl<DeviceDao, DeviceEntity>
+         String macAddress = (String) cacheMap.get("mac_address");
+         String board = (String) cacheMap.get("board");
+         String appVersion = (String) cacheMap.get("app_version");
+-        UserDetail user = SecurityUser.getUser();
+-        if (user.getId() == null) {
+-            throw new RenException(ErrorCode.USER_NOT_LOGIN);
+-        }
+-
+         Date currentTime = new Date();
+         DeviceEntity deviceEntity = new DeviceEntity();
+         deviceEntity.setId(deviceId);
+@@ -138,11 +141,11 @@ public class DeviceServiceImpl extends BaseServiceImpl<DeviceDao, DeviceEntity>
+         deviceEntity.setAgentId(agentId);
+         deviceEntity.setAppVersion(appVersion);
+         deviceEntity.setMacAddress(macAddress);
+-        deviceEntity.setUserId(user.getId());
+-        deviceEntity.setCreator(user.getId());
++        deviceEntity.setUserId(userId);
++        deviceEntity.setCreator(userId);
+         deviceEntity.setAutoUpdate(1);
+         deviceEntity.setCreateDate(currentTime);
+-        deviceEntity.setUpdater(user.getId());
++        deviceEntity.setUpdater(userId);
+         deviceEntity.setUpdateDate(currentTime);
+         deviceEntity.setLastConnectedAt(currentTime);
+         deviceDao.insert(deviceEntity);
+@@ -316,6 +319,9 @@ public class DeviceServiceImpl extends BaseServiceImpl<DeviceDao, DeviceEntity>
+         if (device == null) {
+             return;
+         }
++        if (userId == null || !userId.equals(device.getUserId())) {
++            throw new RenException(ErrorCode.NO_PERMISSION);
++        }
+         String macAddress = device.getMacAddress();
+         if (StringUtils.isNotBlank(device.getAgentId())) {
+             // 清除智能体设备数量缓存
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/integration/controller/ExplorerIntegrationController.java b/main/manager-api/src/main/java/xiaozhi/modules/integration/controller/ExplorerIntegrationController.java
+new file mode 100644
+index 00000000..ae14d4fc
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/integration/controller/ExplorerIntegrationController.java
+@@ -0,0 +1,142 @@
++package xiaozhi.modules.integration.controller;
++
++import java.util.List;
++
++import org.springframework.web.bind.annotation.GetMapping;
++import org.springframework.web.bind.annotation.PathVariable;
++import org.springframework.web.bind.annotation.PostMapping;
++import org.springframework.web.bind.annotation.PutMapping;
++import org.springframework.web.bind.annotation.RequestBody;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RestController;
++
++import jakarta.servlet.http.HttpServletRequest;
++import jakarta.validation.Valid;
++import lombok.RequiredArgsConstructor;
++import xiaozhi.common.exception.ErrorCode;
++import xiaozhi.common.exception.RenException;
++import xiaozhi.common.utils.Result;
++import xiaozhi.modules.agent.dto.AgentCreateDTO;
++import xiaozhi.modules.agent.dto.AgentUpdateDTO;
++import xiaozhi.modules.agent.service.AgentService;
++import xiaozhi.modules.agent.vo.AgentInfoVO;
++import xiaozhi.modules.device.dto.DeviceManualAddDTO;
++import xiaozhi.modules.device.service.DeviceService;
++import xiaozhi.modules.integration.dto.ExplorerAgentCreateDTO;
++import xiaozhi.modules.integration.dto.ExplorerAgentUpdateDTO;
++import xiaozhi.modules.integration.dto.ExplorerAgentView;
++import xiaozhi.modules.integration.dto.ExplorerDeviceManualAddDTO;
++import xiaozhi.modules.integration.dto.ExplorerDeviceUnbindDTO;
++import xiaozhi.modules.integration.dto.ExplorerDeviceView;
++import xiaozhi.modules.security.integration.IntegrationCredentialFilter;
++import xiaozhi.modules.security.integration.IntegrationPrincipal;
++
++@RestController
++@RequestMapping("/integration/explorer")
++@RequiredArgsConstructor
++public class ExplorerIntegrationController {
++    private final AgentService agentService;
++    private final DeviceService deviceService;
++
++    @GetMapping("/agent/{agentId}")
++    public Result<ExplorerAgentView> getAgent(
++            @PathVariable String agentId, HttpServletRequest request) {
++        IntegrationPrincipal principal = principal(request);
++        AgentInfoVO agent = agentService.getAgentByIdForOwner(agentId, principal.ownerUserId());
++        return new Result<ExplorerAgentView>().ok(new ExplorerAgentView(
++                agent.getId(),
++                agent.getAgentName(),
++                agent.getSystemPrompt(),
++                agent.getTtsVoiceId(),
++                agent.getTtsLanguage(),
++                agent.getLlmModelId(),
++                agent.getAsrModelId(),
++                agent.getTtsModelId()));
++    }
++
++    @PostMapping("/agent")
++    public Result<String> createAgent(
++            @RequestBody @Valid ExplorerAgentCreateDTO dto, HttpServletRequest request) {
++        IntegrationPrincipal principal = principal(request);
++        AgentCreateDTO allowed = new AgentCreateDTO();
++        allowed.setAgentName(dto.getAgentName());
++        return new Result<String>().ok(agentService.createAgent(allowed, principal.ownerUserId()));
++    }
++
++    @PutMapping("/agent/{agentId}")
++    public Result<Void> updateAgent(
++            @PathVariable String agentId,
++            @RequestBody @Valid ExplorerAgentUpdateDTO dto,
++            HttpServletRequest request) {
++        IntegrationPrincipal principal = principal(request);
++        AgentUpdateDTO allowed = new AgentUpdateDTO();
++        allowed.setAgentName(dto.getAgentName());
++        allowed.setSystemPrompt(dto.getSystemPrompt());
++        allowed.setTtsVoiceId(dto.getTtsVoiceId());
++        allowed.setTtsLanguage(dto.getTtsLanguage());
++        agentService.updateAgentByIdForOwner(agentId, allowed, principal.ownerUserId());
++        return new Result<>();
++    }
++
++    @GetMapping("/device/bind/{agentId}")
++    public Result<List<ExplorerDeviceView>> listAgentDevices(
++            @PathVariable String agentId, HttpServletRequest request) {
++        IntegrationPrincipal principal = principal(request);
++        requireAgentOwner(agentId, principal.ownerUserId());
++        List<ExplorerDeviceView> devices = deviceService.getUserDeviceList(principal.ownerUserId(), agentId)
++                .stream()
++                .map(device -> new ExplorerDeviceView(
++                        device.getId(),
++                        agentId,
++                        device.getMacAddress(),
++                        device.getBoard(),
++                        device.getAppVersion()))
++                .toList();
++        return new Result<List<ExplorerDeviceView>>().ok(devices);
++    }
++
++    @PostMapping("/device/bind/{agentId}/{deviceCode}")
++    public Result<Void> bindDevice(
++            @PathVariable String agentId,
++            @PathVariable String deviceCode,
++            HttpServletRequest request) {
++        IntegrationPrincipal principal = principal(request);
++        requireAgentOwner(agentId, principal.ownerUserId());
++        deviceService.deviceActivation(agentId, deviceCode, principal.ownerUserId());
++        return new Result<>();
++    }
++
++    @PostMapping("/device/manual-add")
++    public Result<Void> manualAddDevice(
++            @RequestBody @Valid ExplorerDeviceManualAddDTO dto, HttpServletRequest request) {
++        IntegrationPrincipal principal = principal(request);
++        requireAgentOwner(dto.getAgentId(), principal.ownerUserId());
++        DeviceManualAddDTO allowed = new DeviceManualAddDTO();
++        allowed.setAgentId(dto.getAgentId());
++        allowed.setMacAddress(dto.getMacAddress());
++        allowed.setBoard(dto.getBoard());
++        allowed.setAppVersion("explorer-enrollment");
++        deviceService.manualAddDevice(principal.ownerUserId(), allowed);
++        return new Result<>();
++    }
++
++    @PostMapping("/device/unbind")
++    public Result<Void> unbindDevice(
++            @RequestBody @Valid ExplorerDeviceUnbindDTO dto, HttpServletRequest request) {
++        IntegrationPrincipal principal = principal(request);
++        deviceService.unbindDevice(principal.ownerUserId(), dto.getDeviceId());
++        return new Result<>();
++    }
++
++    private void requireAgentOwner(String agentId, Long ownerUserId) {
++        if (!agentService.checkAgentOwnership(agentId, ownerUserId)) {
++            throw new RenException(ErrorCode.NO_PERMISSION);
++        }
++    }
++
++    private IntegrationPrincipal principal(HttpServletRequest request) {
++        Object value = request.getAttribute(IntegrationCredentialFilter.PRINCIPAL_ATTRIBUTE);
++        if (value instanceof IntegrationPrincipal principal) return principal;
++        throw new RenException(ErrorCode.UNAUTHORIZED);
++    }
++}
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerAgentCreateDTO.java b/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerAgentCreateDTO.java
+new file mode 100644
+index 00000000..7f531a35
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerAgentCreateDTO.java
+@@ -0,0 +1,10 @@
++package xiaozhi.modules.integration.dto;
++
++import jakarta.validation.constraints.NotBlank;
++import lombok.Data;
++
++@Data
++public class ExplorerAgentCreateDTO {
++    @NotBlank
++    private String agentName;
++}
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerAgentUpdateDTO.java b/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerAgentUpdateDTO.java
+new file mode 100644
+index 00000000..18fa2596
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerAgentUpdateDTO.java
+@@ -0,0 +1,11 @@
++package xiaozhi.modules.integration.dto;
++
++import lombok.Data;
++
++@Data
++public class ExplorerAgentUpdateDTO {
++    private String agentName;
++    private String systemPrompt;
++    private String ttsVoiceId;
++    private String ttsLanguage;
++}
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerAgentView.java b/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerAgentView.java
+new file mode 100644
+index 00000000..f6f5e607
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerAgentView.java
+@@ -0,0 +1,12 @@
++package xiaozhi.modules.integration.dto;
++
++public record ExplorerAgentView(
++        String id,
++        String agentName,
++        String systemPrompt,
++        String ttsVoiceId,
++        String ttsLanguage,
++        String llmModelId,
++        String asrModelId,
++        String ttsModelId) {
++}
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerDeviceManualAddDTO.java b/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerDeviceManualAddDTO.java
+new file mode 100644
+index 00000000..1e794461
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerDeviceManualAddDTO.java
+@@ -0,0 +1,14 @@
++package xiaozhi.modules.integration.dto;
++
++import jakarta.validation.constraints.NotBlank;
++import lombok.Data;
++
++@Data
++public class ExplorerDeviceManualAddDTO {
++    @NotBlank
++    private String agentId;
++    @NotBlank
++    private String macAddress;
++    @NotBlank
++    private String board;
++}
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerDeviceUnbindDTO.java b/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerDeviceUnbindDTO.java
+new file mode 100644
+index 00000000..e704ddaa
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerDeviceUnbindDTO.java
+@@ -0,0 +1,10 @@
++package xiaozhi.modules.integration.dto;
++
++import jakarta.validation.constraints.NotBlank;
++import lombok.Data;
++
++@Data
++public class ExplorerDeviceUnbindDTO {
++    @NotBlank
++    private String deviceId;
++}
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerDeviceView.java b/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerDeviceView.java
+new file mode 100644
+index 00000000..6db43b9d
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/integration/dto/ExplorerDeviceView.java
+@@ -0,0 +1,9 @@
++package xiaozhi.modules.integration.dto;
++
++public record ExplorerDeviceView(
++        String id,
++        String agentId,
++        String macAddress,
++        String board,
++        String appVersion) {
++}
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/security/config/ShiroConfig.java b/main/manager-api/src/main/java/xiaozhi/modules/security/config/ShiroConfig.java
+index 9e7c6387..d5ff8c06 100644
+--- a/main/manager-api/src/main/java/xiaozhi/modules/security/config/ShiroConfig.java
++++ b/main/manager-api/src/main/java/xiaozhi/modules/security/config/ShiroConfig.java
+@@ -21,6 +21,8 @@ import org.springframework.context.annotation.Role;
+ import jakarta.servlet.Filter;
+ import xiaozhi.modules.security.oauth2.Oauth2Filter;
+ import xiaozhi.modules.security.oauth2.Oauth2Realm;
++import xiaozhi.modules.security.integration.IntegrationCredentialFilter;
++import xiaozhi.modules.security.integration.IntegrationCredentialService;
+ import xiaozhi.modules.security.secret.ServerSecretFilter;
+ import xiaozhi.modules.sys.service.SysParamsService;
+ 
+@@ -52,7 +54,8 @@ public class ShiroConfig {
+ 
+     @Bean("shiroFilter")
+     public static ShiroFilterFactoryBean shirFilter(@Lazy WebSecurityManager securityManager,
+-            @Lazy SysParamsService sysParamsService) {
++            @Lazy SysParamsService sysParamsService,
++            @Lazy IntegrationCredentialService integrationCredentialService) {
+         ShiroFilterConfiguration config = new ShiroFilterConfiguration();
+         config.setFilterOncePerRequest(true);
+ 
+@@ -65,6 +68,7 @@ public class ShiroConfig {
+         filters.put("oauth2", new Oauth2Filter());
+         // 服务密钥过滤
+         filters.put("server", new ServerSecretFilter(sysParamsService));
++        filters.put("integration", new IntegrationCredentialFilter(integrationCredentialService));
+         shiroFilter.setFilters(filters);
+ 
+         // 添加Shiro的内置过滤器
+@@ -89,6 +93,7 @@ public class ShiroConfig {
+         filterMap.put("/user/pub-config", "anon");
+         filterMap.put("/user/register", "anon");
+         filterMap.put("/user/retrieve-password", "anon");
++        filterMap.put("/integration/explorer/**", "integration");
+         // 将config路径使用server服务过滤器
+         filterMap.put("/config/**", "server");
+         filterMap.put("/device/address-book/call", "server");
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialAdminController.java b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialAdminController.java
+new file mode 100644
+index 00000000..cc7136f0
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialAdminController.java
+@@ -0,0 +1,50 @@
++package xiaozhi.modules.security.integration;
++
++import java.util.List;
++
++import org.apache.shiro.authz.annotation.RequiresPermissions;
++import org.springframework.web.bind.annotation.GetMapping;
++import org.springframework.web.bind.annotation.PathVariable;
++import org.springframework.web.bind.annotation.PostMapping;
++import org.springframework.web.bind.annotation.RequestBody;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RestController;
++
++import jakarta.validation.Valid;
++import lombok.RequiredArgsConstructor;
++import xiaozhi.common.annotation.LogOperation;
++import xiaozhi.common.utils.Result;
++import xiaozhi.modules.security.integration.IntegrationCredentialService.CreatedIntegrationCredential;
++import xiaozhi.modules.security.integration.IntegrationCredentialService.IntegrationCredentialView;
++import xiaozhi.modules.security.user.SecurityUser;
++
++@RestController
++@RequestMapping("/admin/integration-credentials")
++@RequiredArgsConstructor
++public class IntegrationCredentialAdminController {
++    private final IntegrationCredentialService credentialService;
++
++    @GetMapping
++    @RequiresPermissions("sys:role:superAdmin")
++    public Result<List<IntegrationCredentialView>> list() {
++        return new Result<List<IntegrationCredentialView>>()
++                .ok(credentialService.listExplorerCredentials());
++    }
++
++    @PostMapping
++    @RequiresPermissions("sys:role:superAdmin")
++    public Result<CreatedIntegrationCredential> create(
++            @RequestBody @Valid IntegrationCredentialCreateDTO dto) {
++        CreatedIntegrationCredential created = credentialService.createExplorerCredential(
++                dto.getName(), dto.getOwnerUserId(), dto.getExpiresAt(), SecurityUser.getUserId());
++        return new Result<CreatedIntegrationCredential>().ok(created);
++    }
++
++    @PostMapping("/{credentialId}/revoke")
++    @LogOperation("撤销 Explorer 集成凭据")
++    @RequiresPermissions("sys:role:superAdmin")
++    public Result<Void> revoke(@PathVariable String credentialId) {
++        credentialService.revokeExplorerCredential(credentialId, SecurityUser.getUserId());
++        return new Result<>();
++    }
++}
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialCreateDTO.java b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialCreateDTO.java
+new file mode 100644
+index 00000000..8bc5ce75
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialCreateDTO.java
+@@ -0,0 +1,20 @@
++package xiaozhi.modules.security.integration;
++
++import java.util.Date;
++
++import jakarta.validation.constraints.NotBlank;
++import jakarta.validation.constraints.NotNull;
++import jakarta.validation.constraints.Size;
++import lombok.Data;
++
++@Data
++public class IntegrationCredentialCreateDTO {
++    @NotBlank
++    @Size(max = 100)
++    private String name;
++
++    @NotNull
++    private Long ownerUserId;
++
++    private Date expiresAt;
++}
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialDao.java b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialDao.java
+new file mode 100644
+index 00000000..decefffa
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialDao.java
+@@ -0,0 +1,9 @@
++package xiaozhi.modules.security.integration;
++
++import org.apache.ibatis.annotations.Mapper;
++
++import xiaozhi.common.dao.BaseDao;
++
++@Mapper
++public interface IntegrationCredentialDao extends BaseDao<IntegrationCredentialEntity> {
++}
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialEntity.java b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialEntity.java
+new file mode 100644
+index 00000000..539f00f9
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialEntity.java
+@@ -0,0 +1,29 @@
++package xiaozhi.modules.security.integration;
++
++import java.io.Serializable;
++import java.util.Date;
++
++import com.baomidou.mybatisplus.annotation.IdType;
++import com.baomidou.mybatisplus.annotation.TableId;
++import com.baomidou.mybatisplus.annotation.TableName;
++
++import lombok.Data;
++
++@Data
++@TableName("sys_integration_credential")
++public class IntegrationCredentialEntity implements Serializable {
++    @TableId(type = IdType.INPUT)
++    private String id;
++    private String name;
++    private String subject;
++    private Long ownerUserId;
++    private String tokenHash;
++    private Integer enabled;
++    private Date expiresAt;
++    private Date lastUsedAt;
++    private Date revokedAt;
++    private Long creator;
++    private Date createDate;
++    private Long updater;
++    private Date updateDate;
++}
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialFilter.java b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialFilter.java
+new file mode 100644
+index 00000000..def46e33
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialFilter.java
+@@ -0,0 +1,79 @@
++package xiaozhi.modules.security.integration;
++
++import java.io.IOException;
++
++import org.apache.commons.lang3.StringUtils;
++import org.apache.shiro.web.filter.authc.AuthenticatingFilter;
++import org.springframework.web.bind.annotation.RequestMethod;
++
++import jakarta.servlet.ServletRequest;
++import jakarta.servlet.ServletResponse;
++import jakarta.servlet.http.HttpServletRequest;
++import jakarta.servlet.http.HttpServletResponse;
++import lombok.RequiredArgsConstructor;
++import lombok.extern.slf4j.Slf4j;
++import xiaozhi.common.exception.ErrorCode;
++import xiaozhi.common.utils.JsonUtils;
++import xiaozhi.common.utils.Result;
++
++@Slf4j
++@RequiredArgsConstructor
++public class IntegrationCredentialFilter extends AuthenticatingFilter {
++    public static final String PRINCIPAL_ATTRIBUTE = IntegrationCredentialFilter.class.getName() + ".principal";
++
++    private final IntegrationCredentialService credentialService;
++
++    @Override
++    protected org.apache.shiro.authc.AuthenticationToken createToken(
++            ServletRequest request, ServletResponse response) {
++        return null;
++    }
++
++    @Override
++    protected boolean isAccessAllowed(ServletRequest request, ServletResponse response, Object mappedValue) {
++        return ((HttpServletRequest) request).getMethod().equals(RequestMethod.OPTIONS.name());
++    }
++
++    @Override
++    protected boolean onAccessDenied(ServletRequest servletRequest, ServletResponse servletResponse) {
++        HttpServletRequest request = (HttpServletRequest) servletRequest;
++        HttpServletResponse response = (HttpServletResponse) servletResponse;
++        String rawToken = bearerToken(request);
++        IntegrationPrincipal principal = credentialService.authenticateExplorerCredential(rawToken);
++        if (principal == null) {
++            log.warn("Integration request rejected: subject={}, method={}, path={}",
++                    IntegrationCredentialService.EXPLORER_SUBJECT, request.getMethod(), request.getRequestURI());
++            sendUnauthorized(response);
++            return false;
++        }
++
++        request.setAttribute(PRINCIPAL_ATTRIBUTE, principal);
++        try {
++            credentialService.recordUse(principal.credentialId());
++        } catch (RuntimeException exception) {
++            log.warn("Unable to update integration credential usage metadata: credentialId={}",
++                    principal.credentialId());
++        }
++        log.info("Integration request authenticated: subject={}, credentialId={}, method={}, path={}",
++                principal.subject(), principal.credentialId(), request.getMethod(), request.getRequestURI());
++        return true;
++    }
++
++    private String bearerToken(HttpServletRequest request) {
++        String authorization = request.getHeader("Authorization");
++        if (StringUtils.isBlank(authorization) || !authorization.startsWith("Bearer ")) return null;
++        String token = authorization.substring("Bearer ".length()).trim();
++        return StringUtils.isBlank(token) ? null : token;
++    }
++
++    private void sendUnauthorized(HttpServletResponse response) {
++        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
++        response.setContentType("application/json;charset=utf-8");
++        try {
++            response.getWriter().print(JsonUtils.toJsonString(
++                    new Result<Void>().error(ErrorCode.UNAUTHORIZED)));
++        } catch (IOException exception) {
++            log.warn("Unable to write integration unauthorized response");
++        }
++    }
++}
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialService.java b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialService.java
+new file mode 100644
+index 00000000..225f25b3
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialService.java
+@@ -0,0 +1,35 @@
++package xiaozhi.modules.security.integration;
++
++import java.util.Date;
++import java.util.List;
++
++public interface IntegrationCredentialService {
++    String EXPLORER_SUBJECT = "explorer";
++
++    CreatedIntegrationCredential createExplorerCredential(
++            String name, Long ownerUserId, Date expiresAt, Long actorUserId);
++
++    List<IntegrationCredentialView> listExplorerCredentials();
++
++    void revokeExplorerCredential(String credentialId, Long actorUserId);
++
++    IntegrationPrincipal authenticateExplorerCredential(String rawToken);
++
++    void recordUse(String credentialId);
++
++    record CreatedIntegrationCredential(IntegrationCredentialView credential, String token) {
++    }
++
++    record IntegrationCredentialView(
++            String id,
++            String name,
++            String subject,
++            Long ownerUserId,
++            boolean enabled,
++            Date expiresAt,
++            Date lastUsedAt,
++            Date revokedAt,
++            Date createDate,
++            Date updateDate) {
++    }
++}
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialServiceImpl.java b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialServiceImpl.java
+new file mode 100644
+index 00000000..3df6d8b6
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationCredentialServiceImpl.java
+@@ -0,0 +1,177 @@
++package xiaozhi.modules.security.integration;
++
++import java.nio.charset.StandardCharsets;
++import java.security.MessageDigest;
++import java.security.NoSuchAlgorithmException;
++import java.security.SecureRandom;
++import java.util.Base64;
++import java.util.Date;
++import java.util.HexFormat;
++import java.util.List;
++import java.util.UUID;
++import java.util.regex.Pattern;
++
++import org.apache.commons.lang3.StringUtils;
++import org.springframework.stereotype.Service;
++import org.springframework.transaction.annotation.Transactional;
++
++import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
++
++import lombok.RequiredArgsConstructor;
++import lombok.extern.slf4j.Slf4j;
++import xiaozhi.common.exception.ErrorCode;
++import xiaozhi.common.exception.RenException;
++import xiaozhi.modules.sys.entity.SysUserEntity;
++import xiaozhi.modules.sys.service.SysUserService;
++
++@Service
++@RequiredArgsConstructor
++@Slf4j
++public class IntegrationCredentialServiceImpl implements IntegrationCredentialService {
++    private static final String TOKEN_PREFIX = "xzi_";
++    private static final int SECRET_BYTES = 32;
++    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
++    private static final Pattern CREDENTIAL_ID_PATTERN = Pattern.compile("[0-9a-f]{32}");
++    private static final Pattern CREDENTIAL_SECRET_PATTERN = Pattern.compile("[A-Za-z0-9_-]{43}");
++
++    private final IntegrationCredentialDao credentialDao;
++    private final SysUserService sysUserService;
++
++    @Override
++    @Transactional(rollbackFor = Exception.class)
++    public CreatedIntegrationCredential createExplorerCredential(
++            String name, Long ownerUserId, Date expiresAt, Long actorUserId) {
++        if (StringUtils.isBlank(name) || name.trim().length() > 100
++                || ownerUserId == null || actorUserId == null) {
++            throw new RenException(ErrorCode.PARAMS_GET_ERROR);
++        }
++        if (expiresAt != null && !expiresAt.after(new Date())) {
++            throw new RenException(ErrorCode.PARAMS_GET_ERROR);
++        }
++        SysUserEntity owner = sysUserService.selectById(ownerUserId);
++        if (owner == null || owner.getStatus() == null || owner.getStatus() == 0) {
++            throw new RenException(ErrorCode.NO_PERMISSION);
++        }
++
++        String id = UUID.randomUUID().toString().replace("-", "");
++        byte[] secret = new byte[SECRET_BYTES];
++        SECURE_RANDOM.nextBytes(secret);
++        String token = TOKEN_PREFIX + id + "." + Base64.getUrlEncoder().withoutPadding().encodeToString(secret);
++
++        Date now = new Date();
++        IntegrationCredentialEntity entity = new IntegrationCredentialEntity();
++        entity.setId(id);
++        entity.setName(name.trim());
++        entity.setSubject(EXPLORER_SUBJECT);
++        entity.setOwnerUserId(ownerUserId);
++        entity.setTokenHash(hash(token));
++        entity.setEnabled(1);
++        entity.setExpiresAt(expiresAt);
++        entity.setCreator(actorUserId);
++        entity.setCreateDate(now);
++        entity.setUpdater(actorUserId);
++        entity.setUpdateDate(now);
++        credentialDao.insert(entity);
++        log.info("Integration credential created: subject={}, credentialId={}, ownerUserId={}, actorUserId={}",
++                entity.getSubject(), entity.getId(), entity.getOwnerUserId(), actorUserId);
++
++        return new CreatedIntegrationCredential(toView(entity), token);
++    }
++
++    @Override
++    public List<IntegrationCredentialView> listExplorerCredentials() {
++        return credentialDao.selectList(new LambdaQueryWrapper<IntegrationCredentialEntity>()
++                .eq(IntegrationCredentialEntity::getSubject, EXPLORER_SUBJECT)
++                .orderByDesc(IntegrationCredentialEntity::getCreateDate))
++                .stream()
++                .map(this::toView)
++                .toList();
++    }
++
++    @Override
++    @Transactional(rollbackFor = Exception.class)
++    public void revokeExplorerCredential(String credentialId, Long actorUserId) {
++        if (StringUtils.isBlank(credentialId) || actorUserId == null) {
++            throw new RenException(ErrorCode.PARAMS_GET_ERROR);
++        }
++        IntegrationCredentialEntity entity = credentialDao.selectById(credentialId);
++        if (entity == null || !EXPLORER_SUBJECT.equals(entity.getSubject())) {
++            throw new RenException(ErrorCode.NO_PERMISSION);
++        }
++        Date now = new Date();
++        entity.setEnabled(0);
++        entity.setRevokedAt(now);
++        entity.setUpdater(actorUserId);
++        entity.setUpdateDate(now);
++        credentialDao.updateById(entity);
++        log.info("Integration credential revoked: subject={}, credentialId={}, ownerUserId={}, actorUserId={}",
++                entity.getSubject(), entity.getId(), entity.getOwnerUserId(), actorUserId);
++    }
++
++    @Override
++    public IntegrationPrincipal authenticateExplorerCredential(String rawToken) {
++        String credentialId = credentialId(rawToken);
++        if (credentialId == null) return null;
++
++        IntegrationCredentialEntity entity = credentialDao.selectById(credentialId);
++        Date now = new Date();
++        if (entity == null
++                || !EXPLORER_SUBJECT.equals(entity.getSubject())
++                || entity.getEnabled() == null
++                || entity.getEnabled() != 1
++                || (entity.getExpiresAt() != null && !entity.getExpiresAt().after(now))
++                || StringUtils.isBlank(entity.getTokenHash())
++                || !MessageDigest.isEqual(
++                        entity.getTokenHash().getBytes(StandardCharsets.US_ASCII),
++                        hash(rawToken).getBytes(StandardCharsets.US_ASCII))) {
++            return null;
++        }
++
++        SysUserEntity owner = sysUserService.selectById(entity.getOwnerUserId());
++        if (owner == null || owner.getStatus() == null || owner.getStatus() == 0) return null;
++        return new IntegrationPrincipal(entity.getId(), entity.getSubject(), entity.getOwnerUserId());
++    }
++
++    @Override
++    public void recordUse(String credentialId) {
++        IntegrationCredentialEntity entity = new IntegrationCredentialEntity();
++        entity.setId(credentialId);
++        entity.setLastUsedAt(new Date());
++        entity.setUpdateDate(new Date());
++        credentialDao.updateById(entity);
++    }
++
++    private String credentialId(String rawToken) {
++        if (StringUtils.isBlank(rawToken) || !rawToken.startsWith(TOKEN_PREFIX)) return null;
++        int separator = rawToken.indexOf('.', TOKEN_PREFIX.length());
++        if (separator < 0) return null;
++        String id = rawToken.substring(TOKEN_PREFIX.length(), separator);
++        if (!CREDENTIAL_ID_PATTERN.matcher(id).matches()) return null;
++        String secret = rawToken.substring(separator + 1);
++        return CREDENTIAL_SECRET_PATTERN.matcher(secret).matches() ? id : null;
++    }
++
++    private String hash(String rawToken) {
++        try {
++            byte[] digest = MessageDigest.getInstance("SHA-256")
++                    .digest(rawToken.getBytes(StandardCharsets.UTF_8));
++            return HexFormat.of().formatHex(digest);
++        } catch (NoSuchAlgorithmException exception) {
++            throw new IllegalStateException("SHA-256 is unavailable", exception);
++        }
++    }
++
++    private IntegrationCredentialView toView(IntegrationCredentialEntity entity) {
++        return new IntegrationCredentialView(
++                entity.getId(),
++                entity.getName(),
++                entity.getSubject(),
++                entity.getOwnerUserId(),
++                Integer.valueOf(1).equals(entity.getEnabled()),
++                entity.getExpiresAt(),
++                entity.getLastUsedAt(),
++                entity.getRevokedAt(),
++                entity.getCreateDate(),
++                entity.getUpdateDate());
++    }
++}
+diff --git a/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationPrincipal.java b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationPrincipal.java
+new file mode 100644
+index 00000000..f38f2234
+--- /dev/null
++++ b/main/manager-api/src/main/java/xiaozhi/modules/security/integration/IntegrationPrincipal.java
+@@ -0,0 +1,4 @@
++package xiaozhi.modules.security.integration;
++
++public record IntegrationPrincipal(String credentialId, String subject, Long ownerUserId) {
++}
+diff --git a/main/manager-api/src/main/resources/db/changelog/202608151430.sql b/main/manager-api/src/main/resources/db/changelog/202608151430.sql
+new file mode 100644
+index 00000000..ec39aba0
+--- /dev/null
++++ b/main/manager-api/src/main/resources/db/changelog/202608151430.sql
+@@ -0,0 +1,19 @@
++CREATE TABLE sys_integration_credential (
++  id varchar(32) NOT NULL COMMENT '凭据公开标识',
++  name varchar(100) NOT NULL COMMENT '凭据名称',
++  subject varchar(32) NOT NULL COMMENT '独立审计主体',
++  owner_user_id bigint NOT NULL COMMENT '可操作资源所属用户',
++  token_hash char(64) NOT NULL COMMENT 'SHA-256 凭据摘要',
++  enabled tinyint NOT NULL DEFAULT 1 COMMENT '是否可用',
++  expires_at datetime NULL COMMENT '可选过期时间',
++  last_used_at datetime NULL COMMENT '最后使用时间',
++  revoked_at datetime NULL COMMENT '撤销时间',
++  creator bigint COMMENT '创建者',
++  create_date datetime NOT NULL COMMENT '创建时间',
++  updater bigint COMMENT '更新者',
++  update_date datetime NOT NULL COMMENT '更新时间',
++  PRIMARY KEY (id),
++  UNIQUE KEY uk_integration_credential_token_hash (token_hash),
++  KEY idx_integration_credential_owner (owner_user_id),
++  KEY idx_integration_credential_subject_enabled (subject, enabled)
++) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='服务端集成凭据';
+diff --git a/main/manager-api/src/main/resources/db/changelog/db.changelog-master.yaml b/main/manager-api/src/main/resources/db/changelog/db.changelog-master.yaml
+index 90a5148d..124153e7 100644
+--- a/main/manager-api/src/main/resources/db/changelog/db.changelog-master.yaml
++++ b/main/manager-api/src/main/resources/db/changelog/db.changelog-master.yaml
+@@ -725,3 +725,10 @@ databaseChangeLog:
+         - sqlFile:
+             encoding: utf8
+             path: classpath:db/changelog/202608061030.sql
++  - changeSet:
++      id: 202608151430
++      author: nxhlz
++      changes:
++        - sqlFile:
++            encoding: utf8
++            path: classpath:db/changelog/202608151430.sql
+diff --git a/main/manager-api/src/test/java/xiaozhi/common/utils/TestMessageSupport.java b/main/manager-api/src/test/java/xiaozhi/common/utils/TestMessageSupport.java
+new file mode 100644
+index 00000000..6b6b0fd2
+--- /dev/null
++++ b/main/manager-api/src/test/java/xiaozhi/common/utils/TestMessageSupport.java
+@@ -0,0 +1,15 @@
++package xiaozhi.common.utils;
++
++import org.springframework.context.support.StaticMessageSource;
++import org.springframework.test.util.ReflectionTestUtils;
++
++public final class TestMessageSupport {
++    private TestMessageSupport() {
++    }
++
++    public static void install() {
++        StaticMessageSource messageSource = new StaticMessageSource();
++        messageSource.setUseCodeAsDefaultMessage(true);
++        ReflectionTestUtils.setField(MessageUtils.class, "messageSource", messageSource);
++    }
++}
+diff --git a/main/manager-api/src/test/java/xiaozhi/modules/agent/service/impl/AgentServiceIntegrationOwnerTest.java b/main/manager-api/src/test/java/xiaozhi/modules/agent/service/impl/AgentServiceIntegrationOwnerTest.java
+new file mode 100644
+index 00000000..6e787225
+--- /dev/null
++++ b/main/manager-api/src/test/java/xiaozhi/modules/agent/service/impl/AgentServiceIntegrationOwnerTest.java
+@@ -0,0 +1,89 @@
++package xiaozhi.modules.agent.service.impl;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertThrows;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.never;
++import static org.mockito.Mockito.when;
++
++import java.util.List;
++
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++import org.mockito.ArgumentCaptor;
++import org.springframework.test.util.ReflectionTestUtils;
++
++import xiaozhi.modules.agent.dao.AgentDao;
++import xiaozhi.modules.agent.dto.AgentUpdateDTO;
++import xiaozhi.modules.agent.entity.AgentEntity;
++import xiaozhi.modules.agent.service.AgentContextProviderService;
++import xiaozhi.modules.agent.service.AgentSnapshotService;
++import xiaozhi.modules.agent.vo.AgentInfoVO;
++import xiaozhi.modules.correctword.service.CorrectWordFileService;
++import xiaozhi.common.exception.RenException;
++import xiaozhi.common.utils.TestMessageSupport;
++
++class AgentServiceIntegrationOwnerTest {
++    @BeforeEach
++    void installMessages() {
++        TestMessageSupport.install();
++    }
++
++    @Test
++    void ownerScopedUpdateRejectsAnotherOwnerBeforeLockingOrMutating() {
++        AgentDao agentDao = mock(AgentDao.class);
++        AgentServiceImpl service = new AgentServiceImpl(
++                agentDao, null, null, null, null, null, null, null,
++                null, null, null, null, null, null);
++        AgentEntity anotherOwnersAgent = new AgentEntity();
++        anotherOwnersAgent.setId("agent-1");
++        anotherOwnersAgent.setUserId(99L);
++        when(agentDao.selectById("agent-1")).thenReturn(anotherOwnersAgent);
++
++        assertThrows(RenException.class,
++                () -> service.updateAgentByIdForOwner("agent-1", new AgentUpdateDTO(), 41L));
++
++        verify(agentDao, never()).selectByIdForUpdate("agent-1");
++        verify(agentDao, never()).updateById(any(AgentEntity.class));
++    }
++
++    @Test
++    void ownerScopedUpdateKeepsOwnershipAndAttributesSnapshotsToThatOwner() {
++        AgentDao agentDao = mock(AgentDao.class);
++        AgentContextProviderService contextProviders = mock(AgentContextProviderService.class);
++        CorrectWordFileService correctWords = mock(CorrectWordFileService.class);
++        AgentSnapshotService snapshots = mock(AgentSnapshotService.class);
++        AgentServiceImpl service = new AgentServiceImpl(
++                agentDao, null, null, null, null, null, null, null,
++                null, null, contextProviders, null, correctWords, snapshots);
++        ReflectionTestUtils.setField(service, "baseDao", agentDao);
++
++        AgentEntity owned = new AgentEntity();
++        owned.setId("agent-1");
++        owned.setUserId(41L);
++        AgentInfoVO current = new AgentInfoVO();
++        current.setId("agent-1");
++        current.setUserId(41L);
++        current.setAgentName("old-name");
++        when(agentDao.selectById("agent-1")).thenReturn(owned);
++        when(agentDao.selectByIdForUpdate("agent-1")).thenReturn(owned);
++        when(agentDao.selectAgentInfoById("agent-1")).thenReturn(current);
++        when(contextProviders.getByAgentId("agent-1")).thenReturn(null);
++        when(correctWords.getAgentCorrectWordFileIds("agent-1")).thenReturn(List.of());
++        when(snapshots.getCurrentVersionNo("agent-1")).thenReturn(3);
++        when(agentDao.updateById(any(AgentEntity.class))).thenReturn(1);
++        AgentUpdateDTO update = new AgentUpdateDTO();
++        update.setAgentName("new-name");
++
++        service.updateAgentByIdForOwner("agent-1", update, 41L);
++
++        verify(snapshots).createSnapshot("agent-1", "current", 41L);
++        verify(snapshots).createSnapshot("agent-1", "config", 41L);
++        ArgumentCaptor<AgentEntity> saved = ArgumentCaptor.forClass(AgentEntity.class);
++        verify(agentDao).updateById(saved.capture());
++        assertEquals(41L, saved.getValue().getUpdater());
++        assertEquals("new-name", saved.getValue().getAgentName());
++    }
++}
+diff --git a/main/manager-api/src/test/java/xiaozhi/modules/agent/service/impl/AgentSnapshotIntegrationActorTest.java b/main/manager-api/src/test/java/xiaozhi/modules/agent/service/impl/AgentSnapshotIntegrationActorTest.java
+new file mode 100644
+index 00000000..363da371
+--- /dev/null
++++ b/main/manager-api/src/test/java/xiaozhi/modules/agent/service/impl/AgentSnapshotIntegrationActorTest.java
+@@ -0,0 +1,53 @@
++package xiaozhi.modules.agent.service.impl;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
++
++import java.util.List;
++
++import org.junit.jupiter.api.Test;
++import org.mockito.ArgumentCaptor;
++
++import xiaozhi.modules.agent.dao.AgentDao;
++import xiaozhi.modules.agent.dao.AgentSnapshotDao;
++import xiaozhi.modules.agent.dao.AgentTagDao;
++import xiaozhi.modules.agent.entity.AgentEntity;
++import xiaozhi.modules.agent.entity.AgentSnapshotEntity;
++import xiaozhi.modules.agent.service.AgentContextProviderService;
++import xiaozhi.modules.agent.vo.AgentInfoVO;
++import xiaozhi.modules.correctword.service.CorrectWordFileService;
++
++class AgentSnapshotIntegrationActorTest {
++    @Test
++    void explicitIntegrationActorIsPersistedAsSnapshotCreator() {
++        AgentSnapshotDao snapshots = mock(AgentSnapshotDao.class);
++        AgentDao agents = mock(AgentDao.class);
++        AgentTagDao tags = mock(AgentTagDao.class);
++        AgentContextProviderService contextProviders = mock(AgentContextProviderService.class);
++        CorrectWordFileService correctWords = mock(CorrectWordFileService.class);
++        AgentSnapshotServiceImpl service = new AgentSnapshotServiceImpl(
++                snapshots, agents, tags, null, null, contextProviders, null, null, null, correctWords);
++        AgentEntity locked = new AgentEntity();
++        locked.setId("agent-1");
++        AgentInfoVO current = new AgentInfoVO();
++        current.setId("agent-1");
++        current.setUserId(41L);
++        current.setAgentName("Explorer agent");
++        when(agents.selectByIdForUpdate("agent-1")).thenReturn(locked);
++        when(agents.selectAgentInfoById("agent-1")).thenReturn(current);
++        when(snapshots.selectLatestSnapshot("agent-1")).thenReturn(null);
++        when(snapshots.insertWithNextVersion(any())).thenReturn(1);
++        when(correctWords.getAgentCorrectWordFileIds("agent-1")).thenReturn(List.of());
++        when(contextProviders.getByAgentId("agent-1")).thenReturn(null);
++        when(tags.selectByAgentId("agent-1")).thenReturn(List.of());
++
++        service.createSnapshot("agent-1", "config", 41L);
++
++        ArgumentCaptor<AgentSnapshotEntity> inserted = ArgumentCaptor.forClass(AgentSnapshotEntity.class);
++        verify(snapshots).insertWithNextVersion(inserted.capture());
++        assertEquals(41L, inserted.getValue().getCreator());
++    }
++}
+diff --git a/main/manager-api/src/test/java/xiaozhi/modules/agent/service/impl/AgentSnapshotServiceImplTest.java b/main/manager-api/src/test/java/xiaozhi/modules/agent/service/impl/AgentSnapshotServiceImplTest.java
+index 8a3473e6..51638981 100644
+--- a/main/manager-api/src/test/java/xiaozhi/modules/agent/service/impl/AgentSnapshotServiceImplTest.java
++++ b/main/manager-api/src/test/java/xiaozhi/modules/agent/service/impl/AgentSnapshotServiceImplTest.java
+@@ -1166,7 +1166,7 @@ class AgentSnapshotServiceImplTest {
+         AgentCreateDTO dto = new AgentCreateDTO();
+         dto.setAgentName("test123");
+ 
+-        String agentId = service.createAgent(dto);
++        String agentId = service.createAgent(dto, 41L);
+ 
+         InOrder inOrder = inOrder(agentDao, pluginMappingService, snapshotService);
+         inOrder.verify(agentDao).insert(argThat((AgentEntity agent) -> "test123".equals(agent.getAgentName())
+@@ -1174,7 +1174,7 @@ class AgentSnapshotServiceImplTest {
+                 && "".equals(agent.getSummaryMemory())
+                 && Integer.valueOf(0).equals(agent.getChatHistoryConf())));
+         inOrder.verify(pluginMappingService).saveBatch(any(), eq(IRepository.DEFAULT_BATCH_SIZE));
+-        inOrder.verify(snapshotService).createSnapshot(agentId, "initial");
++        inOrder.verify(snapshotService).createSnapshot(agentId, "initial", 41L);
+     }
+ 
+     @Test
+diff --git a/main/manager-api/src/test/java/xiaozhi/modules/device/service/impl/DeviceServiceImplOwnershipTest.java b/main/manager-api/src/test/java/xiaozhi/modules/device/service/impl/DeviceServiceImplOwnershipTest.java
+new file mode 100644
+index 00000000..5e5c1596
+--- /dev/null
++++ b/main/manager-api/src/test/java/xiaozhi/modules/device/service/impl/DeviceServiceImplOwnershipTest.java
+@@ -0,0 +1,44 @@
++package xiaozhi.modules.device.service.impl;
++
++import static org.junit.jupiter.api.Assertions.assertThrows;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.never;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
++
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++import org.springframework.test.util.ReflectionTestUtils;
++
++import xiaozhi.common.exception.RenException;
++import xiaozhi.common.redis.RedisUtils;
++import xiaozhi.common.utils.TestMessageSupport;
++import xiaozhi.modules.device.dao.DeviceDao;
++import xiaozhi.modules.device.entity.DeviceEntity;
++import xiaozhi.modules.device.service.DeviceAddressBookService;
++
++class DeviceServiceImplOwnershipTest {
++    @BeforeEach
++    void installMessages() {
++        TestMessageSupport.install();
++    }
++
++    @Test
++    void unbindRejectsAnotherOwnersDeviceBeforeAnySideEffect() {
++        DeviceDao deviceDao = mock(DeviceDao.class);
++        DeviceAddressBookService addressBooks = mock(DeviceAddressBookService.class);
++        DeviceEntity anotherOwnersDevice = new DeviceEntity();
++        anotherOwnersDevice.setId("device-1");
++        anotherOwnersDevice.setUserId(99L);
++        anotherOwnersDevice.setMacAddress("AA:BB:CC:DD:EE:FF");
++        when(deviceDao.selectById("device-1")).thenReturn(anotherOwnersDevice);
++
++        DeviceServiceImpl service = new DeviceServiceImpl(
++                deviceDao, null, null, mock(RedisUtils.class), null, addressBooks);
++        ReflectionTestUtils.setField(service, "baseDao", deviceDao);
++
++        assertThrows(RenException.class, () -> service.unbindDevice(41L, "device-1"));
++        verify(deviceDao, never()).delete(org.mockito.ArgumentMatchers.any());
++        verify(addressBooks, never()).deleteByMacAddresses(org.mockito.ArgumentMatchers.any());
++    }
++}
+diff --git a/main/manager-api/src/test/java/xiaozhi/modules/integration/controller/ExplorerIntegrationControllerTest.java b/main/manager-api/src/test/java/xiaozhi/modules/integration/controller/ExplorerIntegrationControllerTest.java
+new file mode 100644
+index 00000000..1410ab4a
+--- /dev/null
++++ b/main/manager-api/src/test/java/xiaozhi/modules/integration/controller/ExplorerIntegrationControllerTest.java
+@@ -0,0 +1,188 @@
++package xiaozhi.modules.integration.controller;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertThrows;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.never;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
++
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++import org.mockito.ArgumentCaptor;
++import org.springframework.mock.web.MockHttpServletRequest;
++
++import xiaozhi.common.exception.RenException;
++import xiaozhi.common.utils.JsonUtils;
++import xiaozhi.common.utils.TestMessageSupport;
++import xiaozhi.modules.agent.dto.AgentCreateDTO;
++import xiaozhi.modules.agent.dto.AgentUpdateDTO;
++import xiaozhi.modules.agent.service.AgentService;
++import xiaozhi.modules.agent.vo.AgentInfoVO;
++import xiaozhi.modules.device.dto.DeviceManualAddDTO;
++import xiaozhi.modules.device.service.DeviceService;
++import xiaozhi.modules.device.vo.UserShowDeviceListVO;
++import xiaozhi.modules.integration.dto.ExplorerAgentCreateDTO;
++import xiaozhi.modules.integration.dto.ExplorerAgentUpdateDTO;
++import xiaozhi.modules.integration.dto.ExplorerDeviceManualAddDTO;
++import xiaozhi.modules.integration.dto.ExplorerDeviceUnbindDTO;
++import xiaozhi.modules.security.integration.IntegrationCredentialFilter;
++import xiaozhi.modules.security.integration.IntegrationPrincipal;
++
++class ExplorerIntegrationControllerTest {
++    @BeforeEach
++    void installMessages() {
++        TestMessageSupport.install();
++    }
++
++    @Test
++    void bindAndUnbindAlwaysUseTheCredentialOwner() {
++        AgentService agents = mock(AgentService.class);
++        DeviceService devices = mock(DeviceService.class);
++        when(agents.checkAgentOwnership("agent-1", 41L)).thenReturn(true);
++        ExplorerIntegrationController controller = new ExplorerIntegrationController(agents, devices);
++
++        controller.bindDevice("agent-1", "123456", authorizedRequest());
++        ExplorerDeviceUnbindDTO unbind = new ExplorerDeviceUnbindDTO();
++        unbind.setDeviceId("device-1");
++        controller.unbindDevice(unbind, authorizedRequest());
++
++        verify(devices).deviceActivation("agent-1", "123456", 41L);
++        verify(devices).unbindDevice(41L, "device-1");
++    }
++
++    @Test
++    void anotherOwnersAgentIsDeniedBeforeAnyDeviceMutation() {
++        AgentService agents = mock(AgentService.class);
++        DeviceService devices = mock(DeviceService.class);
++        when(agents.checkAgentOwnership("agent-other", 41L)).thenReturn(false);
++        ExplorerIntegrationController controller = new ExplorerIntegrationController(agents, devices);
++
++        assertThrows(RenException.class,
++                () -> controller.bindDevice("agent-other", "123456", authorizedRequest()));
++
++        verify(devices, never()).deviceActivation(
++                org.mockito.ArgumentMatchers.anyString(),
++                org.mockito.ArgumentMatchers.anyString(),
++                org.mockito.ArgumentMatchers.anyLong());
++    }
++
++    @Test
++    void manualAddForwardsOnlyScopedDeviceFieldsAndServerOwnedAppVersion() {
++        AgentService agents = mock(AgentService.class);
++        DeviceService devices = mock(DeviceService.class);
++        when(agents.checkAgentOwnership("agent-1", 41L)).thenReturn(true);
++        ExplorerIntegrationController controller = new ExplorerIntegrationController(agents, devices);
++        ExplorerDeviceManualAddDTO input = new ExplorerDeviceManualAddDTO();
++        input.setAgentId("agent-1");
++        input.setMacAddress("AA:BB:CC:DD:EE:FF");
++        input.setBoard("ESP32-S3");
++
++        controller.manualAddDevice(input, authorizedRequest());
++
++        ArgumentCaptor<DeviceManualAddDTO> allowed = ArgumentCaptor.forClass(DeviceManualAddDTO.class);
++        verify(devices).manualAddDevice(org.mockito.ArgumentMatchers.eq(41L), allowed.capture());
++        assertEquals("agent-1", allowed.getValue().getAgentId());
++        assertEquals("AA:BB:CC:DD:EE:FF", allowed.getValue().getMacAddress());
++        assertEquals("ESP32-S3", allowed.getValue().getBoard());
++        assertEquals("explorer-enrollment", allowed.getValue().getAppVersion());
++    }
++
++    @Test
++    void createForwardsOnlyTheExplorerAgentNameUnderTheCredentialOwner() {
++        AgentService agents = mock(AgentService.class);
++        DeviceService devices = mock(DeviceService.class);
++        when(agents.createAgent(org.mockito.ArgumentMatchers.any(AgentCreateDTO.class),
++                org.mockito.ArgumentMatchers.eq(41L))).thenReturn("agent-created");
++        ExplorerIntegrationController controller = new ExplorerIntegrationController(agents, devices);
++        ExplorerAgentCreateDTO input = new ExplorerAgentCreateDTO();
++        input.setAgentName("Explorer · 小探");
++
++        var result = controller.createAgent(input, authorizedRequest());
++
++        ArgumentCaptor<AgentCreateDTO> allowed = ArgumentCaptor.forClass(AgentCreateDTO.class);
++        verify(agents).createAgent(allowed.capture(), org.mockito.ArgumentMatchers.eq(41L));
++        assertEquals("Explorer · 小探", allowed.getValue().getAgentName());
++        assertEquals("agent-created", result.getData());
++    }
++
++    @Test
++    void updateForwardsOnlyTheFourExplorerFieldsUnderTheCredentialOwner() {
++        AgentService agents = mock(AgentService.class);
++        DeviceService devices = mock(DeviceService.class);
++        ExplorerIntegrationController controller = new ExplorerIntegrationController(agents, devices);
++        ExplorerAgentUpdateDTO input = new ExplorerAgentUpdateDTO();
++        input.setAgentName("小探");
++        input.setSystemPrompt("safe prompt");
++        input.setTtsVoiceId("voice-1");
++        input.setTtsLanguage("zh-CN");
++        MockHttpServletRequest request = authorizedRequest();
++
++        controller.updateAgent("agent-1", input, request);
++
++        ArgumentCaptor<AgentUpdateDTO> allowed = ArgumentCaptor.forClass(AgentUpdateDTO.class);
++        verify(agents).updateAgentByIdForOwner(org.mockito.ArgumentMatchers.eq("agent-1"), allowed.capture(),
++                org.mockito.ArgumentMatchers.eq(41L));
++        assertEquals("小探", allowed.getValue().getAgentName());
++        assertEquals("safe prompt", allowed.getValue().getSystemPrompt());
++        assertEquals("voice-1", allowed.getValue().getTtsVoiceId());
++        assertEquals("zh-CN", allowed.getValue().getTtsLanguage());
++        assertEquals(null, allowed.getValue().getLlmModelId());
++        assertEquals(null, allowed.getValue().getTtsModelId());
++    }
++
++    @Test
++    void deviceReadRequiresAgentOwnershipAndUsesOwnerScopedQuery() {
++        AgentService agents = mock(AgentService.class);
++        DeviceService devices = mock(DeviceService.class);
++        when(agents.checkAgentOwnership("agent-1", 41L)).thenReturn(true);
++        UserShowDeviceListVO managerDevice = new UserShowDeviceListVO();
++        managerDevice.setId("device-1");
++        managerDevice.setMacAddress("AA:BB:CC:DD:EE:FF");
++        managerDevice.setBoard("bread-compact");
++        managerDevice.setAppVersion("2.2.4");
++        managerDevice.setBindUserName("must-not-leak");
++        when(devices.getUserDeviceList(41L, "agent-1")).thenReturn(java.util.List.of(managerDevice));
++        ExplorerIntegrationController controller = new ExplorerIntegrationController(agents, devices);
++
++        var result = controller.listAgentDevices("agent-1", authorizedRequest());
++
++        verify(agents).checkAgentOwnership("agent-1", 41L);
++        verify(devices).getUserDeviceList(41L, "agent-1");
++        assertEquals("agent-1", result.getData().get(0).agentId());
++        assertFalse(JsonUtils.toJsonString(result).contains("bindUserName"));
++        assertFalse(JsonUtils.toJsonString(result).contains("must-not-leak"));
++    }
++
++    @Test
++    void agentReadReturnsOnlyFieldsRequiredByExplorer() {
++        AgentService agents = mock(AgentService.class);
++        DeviceService devices = mock(DeviceService.class);
++        AgentInfoVO managerAgent = new AgentInfoVO();
++        managerAgent.setId("agent-1");
++        managerAgent.setUserId(41L);
++        managerAgent.setAgentName("小探");
++        managerAgent.setSystemPrompt("prompt");
++        managerAgent.setTtsVoiceId("voice-1");
++        managerAgent.setTtsLanguage("zh-CN");
++        managerAgent.setLlmModelId("llm-1");
++        managerAgent.setAsrModelId("asr-1");
++        managerAgent.setTtsModelId("tts-1");
++        when(agents.getAgentByIdForOwner("agent-1", 41L)).thenReturn(managerAgent);
++        ExplorerIntegrationController controller = new ExplorerIntegrationController(agents, devices);
++
++        var result = controller.getAgent("agent-1", authorizedRequest());
++
++        assertEquals("小探", result.getData().agentName());
++        assertEquals("llm-1", result.getData().llmModelId());
++        assertFalse(JsonUtils.toJsonString(result).contains("userId"));
++    }
++
++    private MockHttpServletRequest authorizedRequest() {
++        MockHttpServletRequest request = new MockHttpServletRequest();
++        request.setAttribute(IntegrationCredentialFilter.PRINCIPAL_ATTRIBUTE,
++                new IntegrationPrincipal("credential-1", "explorer", 41L));
++        return request;
++    }
++}
+diff --git a/main/manager-api/src/test/java/xiaozhi/modules/security/config/ShiroConfigTest.java b/main/manager-api/src/test/java/xiaozhi/modules/security/config/ShiroConfigTest.java
+index 9b10be11..1fb9b21d 100644
+--- a/main/manager-api/src/test/java/xiaozhi/modules/security/config/ShiroConfigTest.java
++++ b/main/manager-api/src/test/java/xiaozhi/modules/security/config/ShiroConfigTest.java
+@@ -3,6 +3,7 @@ package xiaozhi.modules.security.config;
+ import static org.junit.jupiter.api.Assertions.assertEquals;
+ import static org.junit.jupiter.api.Assertions.assertNotNull;
+ import static org.junit.jupiter.api.Assertions.assertTrue;
++import static org.mockito.Mockito.mock;
+ 
+ import java.lang.reflect.Method;
+ import java.lang.reflect.Modifier;
+@@ -17,6 +18,7 @@ import org.springframework.context.annotation.Lazy;
+ import org.springframework.context.annotation.Role;
+ 
+ import xiaozhi.modules.security.oauth2.Oauth2Realm;
++import xiaozhi.modules.security.integration.IntegrationCredentialService;
+ import xiaozhi.modules.sys.service.SysParamsService;
+ 
+ class ShiroConfigTest {
+@@ -25,17 +27,21 @@ class ShiroConfigTest {
+     void beanPostProcessorFactoriesDoNotInstantiateShiroConfigOrBusinessDependenciesEarly() throws Exception {
+         Method lifecycleFactory = ShiroConfig.class.getDeclaredMethod("lifecycleBeanPostProcessor");
+         Method filterFactory = ShiroConfig.class.getDeclaredMethod(
+-                "shirFilter", WebSecurityManager.class, SysParamsService.class);
++                "shirFilter", WebSecurityManager.class, SysParamsService.class,
++                IntegrationCredentialService.class);
+ 
+         assertTrue(Modifier.isStatic(lifecycleFactory.getModifiers()));
+         assertTrue(BeanPostProcessor.class.isAssignableFrom(ShiroFilterFactoryBean.class));
+         assertTrue(Modifier.isStatic(filterFactory.getModifiers()));
+         Lazy securityManagerLazy = filterFactory.getParameters()[0].getAnnotation(Lazy.class);
+         Lazy sysParamsServiceLazy = filterFactory.getParameters()[1].getAnnotation(Lazy.class);
++        Lazy integrationCredentialServiceLazy = filterFactory.getParameters()[2].getAnnotation(Lazy.class);
+         assertNotNull(securityManagerLazy);
+         assertNotNull(sysParamsServiceLazy);
+         assertTrue(securityManagerLazy.value());
+         assertTrue(sysParamsServiceLazy.value());
++        assertNotNull(integrationCredentialServiceLazy);
++        assertTrue(integrationCredentialServiceLazy.value());
+     }
+ 
+     @Test
+@@ -57,4 +63,18 @@ class ShiroConfigTest {
+ 
+         assertEquals(WebSecurityManager.class, securityManagerFactory.getReturnType());
+     }
++
++    @Test
++    void integrationCredentialIsConfinedToDedicatedExplorerRoutes() {
++        ShiroFilterFactoryBean filter = ShiroConfig.shirFilter(
++                mock(WebSecurityManager.class),
++                mock(SysParamsService.class),
++                mock(IntegrationCredentialService.class));
++
++        assertEquals("integration", filter.getFilterChainDefinitionMap().get("/integration/explorer/**"));
++        assertEquals("oauth2", filter.getFilterChainDefinitionMap().get("/**"));
++        assertEquals(null, filter.getFilterChainDefinitionMap().get("/agent/**"));
++        assertEquals(null, filter.getFilterChainDefinitionMap().get("/device/**"));
++        assertEquals(null, filter.getFilterChainDefinitionMap().get("/admin/**"));
++    }
+ }
+diff --git a/main/manager-api/src/test/java/xiaozhi/modules/security/integration/IntegrationCredentialFilterTest.java b/main/manager-api/src/test/java/xiaozhi/modules/security/integration/IntegrationCredentialFilterTest.java
+new file mode 100644
+index 00000000..d83d7f84
+--- /dev/null
++++ b/main/manager-api/src/test/java/xiaozhi/modules/security/integration/IntegrationCredentialFilterTest.java
+@@ -0,0 +1,72 @@
++package xiaozhi.modules.security.integration;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertSame;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
++import static org.mockito.Mockito.doThrow;
++
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++import org.springframework.mock.web.MockHttpServletRequest;
++import org.springframework.mock.web.MockHttpServletResponse;
++
++import xiaozhi.common.utils.TestMessageSupport;
++
++class IntegrationCredentialFilterTest {
++    @BeforeEach
++    void installMessages() {
++        TestMessageSupport.install();
++    }
++
++    @Test
++    void usageMetadataFailureDoesNotInterruptAnAuthenticatedClassroomRequest() {
++        String token = "xzi_0123456789abcdef0123456789abcdef.test-secret-material-never-production";
++        IntegrationCredentialService service = mock(IntegrationCredentialService.class);
++        IntegrationPrincipal principal = new IntegrationPrincipal("credential-1", "explorer", 41L);
++        when(service.authenticateExplorerCredential(token)).thenReturn(principal);
++        doThrow(new IllegalStateException("database metadata write failed"))
++                .when(service).recordUse("credential-1");
++        IntegrationCredentialFilter filter = new IntegrationCredentialFilter(service);
++        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/integration/explorer/agent/a1");
++        request.addHeader("Authorization", "Bearer " + token);
++
++        assertTrue(filter.onAccessDenied(request, new MockHttpServletResponse()));
++        assertSame(principal, request.getAttribute(IntegrationCredentialFilter.PRINCIPAL_ATTRIBUTE));
++    }
++
++    @Test
++    void acceptsOnlyAValidBearerCredentialWithoutEchoingIt() throws Exception {
++        String token = "xzi_0123456789abcdef0123456789abcdef.test-secret-material-never-production";
++        IntegrationCredentialService service = mock(IntegrationCredentialService.class);
++        IntegrationPrincipal principal = new IntegrationPrincipal("credential-1", "explorer", 41L);
++        when(service.authenticateExplorerCredential(token)).thenReturn(principal);
++        IntegrationCredentialFilter filter = new IntegrationCredentialFilter(service);
++        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/integration/explorer/agent/a1");
++        request.addHeader("Authorization", "Bearer " + token);
++        MockHttpServletResponse response = new MockHttpServletResponse();
++
++        assertTrue(filter.onAccessDenied(request, response));
++        assertSame(principal, request.getAttribute(IntegrationCredentialFilter.PRINCIPAL_ATTRIBUTE));
++        verify(service).recordUse("credential-1");
++        assertFalse(response.getContentAsString().contains(token));
++    }
++
++    @Test
++    void rejectsInvalidCredentialWithHttp401AndNoCredentialMaterial() throws Exception {
++        String token = "invalid-secret-never-production";
++        IntegrationCredentialService service = mock(IntegrationCredentialService.class);
++        when(service.authenticateExplorerCredential(token)).thenReturn(null);
++        IntegrationCredentialFilter filter = new IntegrationCredentialFilter(service);
++        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/integration/explorer/agent/a1");
++        request.addHeader("Authorization", "Bearer " + token);
++        MockHttpServletResponse response = new MockHttpServletResponse();
++
++        assertFalse(filter.onAccessDenied(request, response));
++        assertEquals(401, response.getStatus());
++        assertFalse(response.getContentAsString().contains(token));
++    }
++}
+diff --git a/main/manager-api/src/test/java/xiaozhi/modules/security/integration/IntegrationCredentialServiceImplTest.java b/main/manager-api/src/test/java/xiaozhi/modules/security/integration/IntegrationCredentialServiceImplTest.java
+new file mode 100644
+index 00000000..f9c9bef6
+--- /dev/null
++++ b/main/manager-api/src/test/java/xiaozhi/modules/security/integration/IntegrationCredentialServiceImplTest.java
+@@ -0,0 +1,95 @@
++package xiaozhi.modules.security.integration;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertNotEquals;
++import static org.junit.jupiter.api.Assertions.assertNotNull;
++import static org.junit.jupiter.api.Assertions.assertNull;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
++
++import java.util.Date;
++import java.util.concurrent.atomic.AtomicReference;
++
++import org.junit.jupiter.api.Test;
++import org.mockito.ArgumentCaptor;
++
++import xiaozhi.modules.sys.entity.SysUserEntity;
++import xiaozhi.modules.sys.service.SysUserService;
++
++class IntegrationCredentialServiceImplTest {
++    private static final long OWNER_USER_ID = 41L;
++    private static final long ACTOR_USER_ID = 7L;
++
++    @Test
++    void createsOneTimeSecretButPersistsOnlyItsHashAndAuthenticatesAfterRestart() {
++        IntegrationCredentialDao dao = mock(IntegrationCredentialDao.class);
++        SysUserService users = activeUsers();
++        AtomicReference<IntegrationCredentialEntity> persisted = new AtomicReference<>();
++        when(dao.insert(any(IntegrationCredentialEntity.class))).thenAnswer(invocation -> {
++            persisted.set(invocation.getArgument(0));
++            return 1;
++        });
++
++        IntegrationCredentialServiceImpl creatingService = new IntegrationCredentialServiceImpl(dao, users);
++        IntegrationCredentialService.CreatedIntegrationCredential created = creatingService
++                .createExplorerCredential("Explorer classroom", OWNER_USER_ID, null, ACTOR_USER_ID);
++
++        IntegrationCredentialEntity row = persisted.get();
++        assertNotNull(row);
++        assertTrue(created.token().startsWith("xzi_" + row.getId() + "."));
++        assertNotEquals(created.token(), row.getTokenHash());
++        assertEquals(64, row.getTokenHash().length());
++        assertFalse(row.getTokenHash().contains(created.token()));
++
++        when(dao.selectById(row.getId())).thenReturn(row);
++        IntegrationCredentialServiceImpl restartedService = new IntegrationCredentialServiceImpl(dao, users);
++        IntegrationPrincipal principal = restartedService.authenticateExplorerCredential(created.token());
++        assertEquals(new IntegrationPrincipal(row.getId(), "explorer", OWNER_USER_ID), principal);
++        assertNull(restartedService.authenticateExplorerCredential("ordinary-manager-user-access-token"));
++        assertNull(restartedService.authenticateExplorerCredential(created.token() + "tampered"));
++    }
++
++    @Test
++    void revokedExpiredAndDisabledOwnerCredentialsAreRejected() {
++        IntegrationCredentialDao dao = mock(IntegrationCredentialDao.class);
++        SysUserService users = activeUsers();
++        IntegrationCredentialServiceImpl service = new IntegrationCredentialServiceImpl(dao, users);
++        ArgumentCaptor<IntegrationCredentialEntity> inserted = ArgumentCaptor.forClass(IntegrationCredentialEntity.class);
++        when(dao.insert(any(IntegrationCredentialEntity.class))).thenReturn(1);
++        IntegrationCredentialService.CreatedIntegrationCredential created = service
++                .createExplorerCredential("Explorer", OWNER_USER_ID, null, ACTOR_USER_ID);
++        verify(dao).insert(inserted.capture());
++        IntegrationCredentialEntity row = inserted.getValue();
++        when(dao.selectById(row.getId())).thenReturn(row);
++
++        service.revokeExplorerCredential(row.getId(), ACTOR_USER_ID);
++        assertEquals(0, row.getEnabled());
++        assertNotNull(row.getRevokedAt());
++        assertNull(service.authenticateExplorerCredential(created.token()));
++
++        row.setEnabled(1);
++        row.setRevokedAt(null);
++        row.setExpiresAt(new Date(System.currentTimeMillis() - 1_000));
++        assertNull(service.authenticateExplorerCredential(created.token()));
++
++        row.setExpiresAt(null);
++        SysUserEntity disabled = new SysUserEntity();
++        disabled.setId(OWNER_USER_ID);
++        disabled.setStatus(0);
++        when(users.selectById(OWNER_USER_ID)).thenReturn(disabled);
++        assertNull(service.authenticateExplorerCredential(created.token()));
++    }
++
++    private SysUserService activeUsers() {
++        SysUserService users = mock(SysUserService.class);
++        SysUserEntity owner = new SysUserEntity();
++        owner.setId(OWNER_USER_ID);
++        owner.setStatus(1);
++        when(users.selectById(OWNER_USER_ID)).thenReturn(owner);
++        return users;
++    }
++}

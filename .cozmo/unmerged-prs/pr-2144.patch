@@ -1,0 +1,1322 @@
+diff --git a/main/manager-web/package-lock.json b/main/manager-web/package-lock.json
+index c104b60c..42411947 100644
+--- a/main/manager-web/package-lock.json
++++ b/main/manager-web/package-lock.json
+@@ -10,12 +10,13 @@
+       "dependencies": {
+         "core-js": "^3.41.0",
+         "cross-env": "^7.0.3",
++        "dotenv": "^16.5.0",
+         "element-ui": "^2.15.14",
+         "flyio": "^0.6.14",
+         "normalize.css": "^8.0.1",
+         "opus-decoder": "^0.7.7",
+         "opus-recorder": "^8.0.5",
+-        "vue": "^2.6.14",
++        "vue": "^2.7.16",
+         "vue-axios": "^3.5.2",
+         "vue-router": "^3.6.5",
+         "vuex": "^3.6.2",
+@@ -24,13 +25,16 @@
+       "devDependencies": {
+         "@babel/plugin-syntax-dynamic-import": "^7.8.3",
+         "@babel/plugin-transform-runtime": "^7.26.10",
+-        "@vue/cli-plugin-router": "~5.0.0",
+-        "@vue/cli-plugin-vuex": "~5.0.0",
+-        "@vue/cli-service": "~5.0.0",
++        "@types/node": "^20.19.11",
++        "@vue/cli-plugin-router": "^5.0.8",
++        "@vue/cli-plugin-typescript": "^5.0.8",
++        "@vue/cli-plugin-vuex": "^5.0.8",
++        "@vue/cli-service": "^5.0.8",
+         "compression-webpack-plugin": "^11.1.0",
+         "sass": "^1.32.7",
+         "sass-loader": "^12.0.0",
+-        "vue-template-compiler": "^2.6.14",
++        "typescript": "5.5",
++        "vue-template-compiler": "^2.7.16",
+         "webpack-bundle-analyzer": "^4.10.2",
+         "workbox-webpack-plugin": "^7.3.0"
+       }
+@@ -2307,12 +2311,13 @@
+       "dev": true
+     },
+     "node_modules/@types/node": {
+-      "version": "22.13.14",
+-      "resolved": "https://registry.npmmirror.com/@types/node/-/node-22.13.14.tgz",
+-      "integrity": "sha512-Zs/Ollc1SJ8nKUAgc7ivOEdIBM8JAKgrqqUYi2J997JuKO7/tpQC+WCetQ1sypiKCQWHdvdg9wBNpUPEWZae7w==",
++      "version": "20.19.11",
++      "resolved": "https://registry.npmmirror.com/@types/node/-/node-20.19.11.tgz",
++      "integrity": "sha512-uug3FEEGv0r+jrecvUUpbY8lLisvIjg6AAic6a2bSP5OEOLeJsDSnvhCDov7ipFFMXS3orMpzlmi0ZcuGkBbow==",
+       "dev": true,
++      "license": "MIT",
+       "dependencies": {
+-        "undici-types": "~6.20.0"
++        "undici-types": "~6.21.0"
+       }
+     },
+     "node_modules/@types/node-forge": {
+@@ -2405,6 +2410,13 @@
+       "integrity": "sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==",
+       "dev": true
+     },
++    "node_modules/@types/webpack-env": {
++      "version": "1.18.8",
++      "resolved": "https://registry.npmmirror.com/@types/webpack-env/-/webpack-env-1.18.8.tgz",
++      "integrity": "sha512-G9eAoJRMLjcvN4I08wB5I7YofOb/kaJNd5uoCMX+LbKXTPCF+ZIHuqTnFaK9Jz1rgs035f9JUPUhNFtqgucy/A==",
++      "dev": true,
++      "license": "MIT"
++    },
+     "node_modules/@types/ws": {
+       "version": "8.18.0",
+       "resolved": "https://registry.npmmirror.com/@types/ws/-/ws-8.18.0.tgz",
+@@ -2432,6 +2444,39 @@
+         "@vue/cli-service": "^3.0.0 || ^4.0.0 || ^5.0.0-0"
+       }
+     },
++    "node_modules/@vue/cli-plugin-typescript": {
++      "version": "5.0.8",
++      "resolved": "https://registry.npmmirror.com/@vue/cli-plugin-typescript/-/cli-plugin-typescript-5.0.8.tgz",
++      "integrity": "sha512-JKJOwzJshBqsmp4yLBexwVMebOZ4VGJgbnYvmHVxasJOStF2RxwyW28ZF+zIvASGdat4sAUuo/3mAQyVhm7JHg==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/core": "^7.12.16",
++        "@types/webpack-env": "^1.15.2",
++        "@vue/cli-shared-utils": "^5.0.8",
++        "babel-loader": "^8.2.2",
++        "fork-ts-checker-webpack-plugin": "^6.4.0",
++        "globby": "^11.0.2",
++        "thread-loader": "^3.0.0",
++        "ts-loader": "^9.2.5",
++        "webpack": "^5.54.0"
++      },
++      "peerDependencies": {
++        "@vue/cli-service": "^3.0.0 || ^4.0.0 || ^5.0.0-0",
++        "cache-loader": "^4.1.0",
++        "typescript": ">=2",
++        "vue": "^2 || ^3.2.13",
++        "vue-template-compiler": "^2.0.0"
++      },
++      "peerDependenciesMeta": {
++        "cache-loader": {
++          "optional": true
++        },
++        "vue-template-compiler": {
++          "optional": true
++        }
++      }
++    },
+     "node_modules/@vue/cli-plugin-vuex": {
+       "version": "5.0.8",
+       "resolved": "https://registry.npmmirror.com/@vue/cli-plugin-vuex/-/cli-plugin-vuex-5.0.8.tgz",
+@@ -2540,6 +2585,16 @@
+         }
+       }
+     },
++    "node_modules/@vue/cli-service/node_modules/dotenv": {
++      "version": "10.0.0",
++      "resolved": "https://registry.npmmirror.com/dotenv/-/dotenv-10.0.0.tgz",
++      "integrity": "sha512-rlBi9d8jpv9Sf1klPjNfFAuWDjKLwTIJJ/VxtoTwIR6hnZxcEOQCZg2oIL3MWBYw5GpUDKOEnND7LXTbIpQ03Q==",
++      "dev": true,
++      "license": "BSD-2-Clause",
++      "engines": {
++        "node": ">=10"
++      }
++    },
+     "node_modules/@vue/cli-shared-utils": {
+       "version": "5.0.8",
+       "resolved": "https://registry.npmmirror.com/@vue/cli-shared-utils/-/cli-shared-utils-5.0.8.tgz",
+@@ -3264,13 +3319,13 @@
+       "integrity": "sha512-lHe62zvbTB5eEABUVi/AwVh0ZKY9rMMDhmm+eeyuuUQbQ3+J+fONVQOZyj+DdrvD4BY33uYniyRJ4UJIaSKAfw=="
+     },
+     "node_modules/axios": {
+-      "version": "1.8.4",
+-      "resolved": "https://registry.npmmirror.com/axios/-/axios-1.8.4.tgz",
+-      "integrity": "sha512-eBSYY4Y68NNlHbHBMdeDmKNtDgXWhQsJcGqzO3iLUM0GraQFSS9cVgPX5I9b3lbdFKyYoAEGAZF1DwhTaljNAw==",
++      "version": "1.11.0",
++      "resolved": "https://registry.npmmirror.com/axios/-/axios-1.11.0.tgz",
++      "integrity": "sha512-1Lx3WLFQWm3ooKDYZD1eXmoGO9fxYQjrycfHFC8P0sCfQVXyROp0p9PFWBehewBOdCwHc+f/b8I0fMto5eSfwA==",
+       "peer": true,
+       "dependencies": {
+         "follow-redirects": "^1.15.6",
+-        "form-data": "^4.0.0",
++        "form-data": "^4.0.4",
+         "proxy-from-env": "^1.1.0"
+       }
+     },
+@@ -3279,6 +3334,60 @@
+       "resolved": "https://registry.npmmirror.com/babel-helper-vue-jsx-merge-props/-/babel-helper-vue-jsx-merge-props-2.0.3.tgz",
+       "integrity": "sha512-gsLiKK7Qrb7zYJNgiXKpXblxbV5ffSwR0f5whkPAaBAR4fhi6bwRZxX9wBlIc5M/v8CCkXUbXZL4N/nSE97cqg=="
+     },
++    "node_modules/babel-loader": {
++      "version": "8.4.1",
++      "resolved": "https://registry.npmmirror.com/babel-loader/-/babel-loader-8.4.1.tgz",
++      "integrity": "sha512-nXzRChX+Z1GoE6yWavBQg6jDslyFF3SDjl2paADuoQtQW10JqShJt62R6eJQ5m/pjJFDT8xgKIWSP85OY8eXeA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "find-cache-dir": "^3.3.1",
++        "loader-utils": "^2.0.4",
++        "make-dir": "^3.1.0",
++        "schema-utils": "^2.6.5"
++      },
++      "engines": {
++        "node": ">= 8.9"
++      },
++      "peerDependencies": {
++        "@babel/core": "^7.0.0",
++        "webpack": ">=2"
++      }
++    },
++    "node_modules/babel-loader/node_modules/loader-utils": {
++      "version": "2.0.4",
++      "resolved": "https://registry.npmmirror.com/loader-utils/-/loader-utils-2.0.4.tgz",
++      "integrity": "sha512-xXqpXoINfFhgua9xiqD8fPFHgkoq1mmmpE92WlDbm9rNRd/EbRb+Gqf908T2DMfuHjjJlksiK2RbHVOdD/MqSw==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "big.js": "^5.2.2",
++        "emojis-list": "^3.0.0",
++        "json5": "^2.1.2"
++      },
++      "engines": {
++        "node": ">=8.9.0"
++      }
++    },
++    "node_modules/babel-loader/node_modules/schema-utils": {
++      "version": "2.7.1",
++      "resolved": "https://registry.npmmirror.com/schema-utils/-/schema-utils-2.7.1.tgz",
++      "integrity": "sha512-SHiNtMOUGWBQJwzISiVYKu82GiV4QYGePp3odlY1tuKO7gPtphAT5R/py0fA6xtbgLL/RvtJZnU9b8s0F1q0Xg==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@types/json-schema": "^7.0.5",
++        "ajv": "^6.12.4",
++        "ajv-keywords": "^3.5.2"
++      },
++      "engines": {
++        "node": ">= 8.9.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/webpack"
++      }
++    },
+     "node_modules/babel-plugin-polyfill-corejs2": {
+       "version": "0.4.13",
+       "resolved": "https://registry.npmmirror.com/babel-plugin-polyfill-corejs2/-/babel-plugin-polyfill-corejs2-0.4.13.tgz",
+@@ -3903,6 +4012,13 @@
+         "node": ">=4.0.0"
+       }
+     },
++    "node_modules/commondir": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmmirror.com/commondir/-/commondir-1.0.1.tgz",
++      "integrity": "sha512-W9pAhw0ja1Edb5GVdIF1mjZw/ASI0AlShXM83UUGe2DVr5TdAPEA1OA8m/g8zWp9x6On7gqufY+FatDbC3MDQg==",
++      "dev": true,
++      "license": "MIT"
++    },
+     "node_modules/compressible": {
+       "version": "2.0.18",
+       "resolved": "https://registry.npmmirror.com/compressible/-/compressible-2.0.18.tgz",
+@@ -4776,12 +4892,15 @@
+       }
+     },
+     "node_modules/dotenv": {
+-      "version": "10.0.0",
+-      "resolved": "https://registry.npmmirror.com/dotenv/-/dotenv-10.0.0.tgz",
+-      "integrity": "sha512-rlBi9d8jpv9Sf1klPjNfFAuWDjKLwTIJJ/VxtoTwIR6hnZxcEOQCZg2oIL3MWBYw5GpUDKOEnND7LXTbIpQ03Q==",
+-      "dev": true,
++      "version": "16.6.1",
++      "resolved": "https://registry.npmmirror.com/dotenv/-/dotenv-16.6.1.tgz",
++      "integrity": "sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==",
++      "license": "BSD-2-Clause",
+       "engines": {
+-        "node": ">=10"
++        "node": ">=12"
++      },
++      "funding": {
++        "url": "https://dotenvx.com"
+       }
+     },
+     "node_modules/dotenv-expand": {
+@@ -5523,6 +5642,24 @@
+       "integrity": "sha512-Tpp60P6IUJDTuOq/5Z8cdskzJujfwqfOTkrwIwj7IRISpnkJnT6SyJ4PCPnGMoFjC9ddhal5KVIYtAt97ix05A==",
+       "dev": true
+     },
++    "node_modules/find-cache-dir": {
++      "version": "3.3.2",
++      "resolved": "https://registry.npmmirror.com/find-cache-dir/-/find-cache-dir-3.3.2.tgz",
++      "integrity": "sha512-wXZV5emFEjrridIgED11OoUKLxiYjAcqot/NJdAkOhlJ+vGzwhOAfcG5OX1jP+S0PcjEn8bdMJv+g2jwQ3Onig==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "commondir": "^1.0.1",
++        "make-dir": "^3.0.2",
++        "pkg-dir": "^4.1.0"
++      },
++      "engines": {
++        "node": ">=8"
++      },
++      "funding": {
++        "url": "https://github.com/avajs/find-cache-dir?sponsor=1"
++      }
++    },
+     "node_modules/find-up": {
+       "version": "4.1.0",
+       "resolved": "https://registry.npmmirror.com/find-up/-/find-up-4.1.0.tgz",
+@@ -5595,15 +5732,193 @@
+         "node": "*"
+       }
+     },
++    "node_modules/fork-ts-checker-webpack-plugin": {
++      "version": "6.5.3",
++      "resolved": "https://registry.npmmirror.com/fork-ts-checker-webpack-plugin/-/fork-ts-checker-webpack-plugin-6.5.3.tgz",
++      "integrity": "sha512-SbH/l9ikmMWycd5puHJKTkZJKddF4iRLyW3DeZ08HTI7NGyLS38MXd/KGgeWumQO7YNQbW2u/NtPT2YowbPaGQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@babel/code-frame": "^7.8.3",
++        "@types/json-schema": "^7.0.5",
++        "chalk": "^4.1.0",
++        "chokidar": "^3.4.2",
++        "cosmiconfig": "^6.0.0",
++        "deepmerge": "^4.2.2",
++        "fs-extra": "^9.0.0",
++        "glob": "^7.1.6",
++        "memfs": "^3.1.2",
++        "minimatch": "^3.0.4",
++        "schema-utils": "2.7.0",
++        "semver": "^7.3.2",
++        "tapable": "^1.0.0"
++      },
++      "engines": {
++        "node": ">=10",
++        "yarn": ">=1.0.0"
++      },
++      "peerDependencies": {
++        "eslint": ">= 6",
++        "typescript": ">= 2.7",
++        "vue-template-compiler": "*",
++        "webpack": ">= 4"
++      },
++      "peerDependenciesMeta": {
++        "eslint": {
++          "optional": true
++        },
++        "vue-template-compiler": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/fork-ts-checker-webpack-plugin/node_modules/chalk": {
++      "version": "4.1.2",
++      "resolved": "https://registry.npmmirror.com/chalk/-/chalk-4.1.2.tgz",
++      "integrity": "sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "ansi-styles": "^4.1.0",
++        "supports-color": "^7.1.0"
++      },
++      "engines": {
++        "node": ">=10"
++      },
++      "funding": {
++        "url": "https://github.com/chalk/chalk?sponsor=1"
++      }
++    },
++    "node_modules/fork-ts-checker-webpack-plugin/node_modules/chokidar": {
++      "version": "3.6.0",
++      "resolved": "https://registry.npmmirror.com/chokidar/-/chokidar-3.6.0.tgz",
++      "integrity": "sha512-7VT13fmjotKpGipCW9JEQAusEPE+Ei8nl6/g4FBAmIm0GOOLMua9NDDo/DWp0ZAxCr3cPq5ZpBqmPAQgDda2Pw==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "anymatch": "~3.1.2",
++        "braces": "~3.0.2",
++        "glob-parent": "~5.1.2",
++        "is-binary-path": "~2.1.0",
++        "is-glob": "~4.0.1",
++        "normalize-path": "~3.0.0",
++        "readdirp": "~3.6.0"
++      },
++      "engines": {
++        "node": ">= 8.10.0"
++      },
++      "funding": {
++        "url": "https://paulmillr.com/funding/"
++      },
++      "optionalDependencies": {
++        "fsevents": "~2.3.2"
++      }
++    },
++    "node_modules/fork-ts-checker-webpack-plugin/node_modules/cosmiconfig": {
++      "version": "6.0.0",
++      "resolved": "https://registry.npmmirror.com/cosmiconfig/-/cosmiconfig-6.0.0.tgz",
++      "integrity": "sha512-xb3ZL6+L8b9JLLCx3ZdoZy4+2ECphCMo2PwqgP1tlfVq6M6YReyzBJtvWWtbDSpNr9hn96pkCiZqUcFEc+54Qg==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@types/parse-json": "^4.0.0",
++        "import-fresh": "^3.1.0",
++        "parse-json": "^5.0.0",
++        "path-type": "^4.0.0",
++        "yaml": "^1.7.2"
++      },
++      "engines": {
++        "node": ">=8"
++      }
++    },
++    "node_modules/fork-ts-checker-webpack-plugin/node_modules/deepmerge": {
++      "version": "4.3.1",
++      "resolved": "https://registry.npmmirror.com/deepmerge/-/deepmerge-4.3.1.tgz",
++      "integrity": "sha512-3sUqbMEc77XqpdNO7FRyRog+eW3ph+GYCbj+rK+uYyRMuwsVy0rMiVtPn+QJlKFvWP/1PYpapqYn0Me2knFn+A==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=0.10.0"
++      }
++    },
++    "node_modules/fork-ts-checker-webpack-plugin/node_modules/glob-parent": {
++      "version": "5.1.2",
++      "resolved": "https://registry.npmmirror.com/glob-parent/-/glob-parent-5.1.2.tgz",
++      "integrity": "sha512-AOIgSQCepiJYwP3ARnGx+5VnTu2HBYdzbGP45eLw1vr3zB3vZLeyed1sC9hnbcOc9/SrMyM5RPQrkGz4aS9Zow==",
++      "dev": true,
++      "license": "ISC",
++      "dependencies": {
++        "is-glob": "^4.0.1"
++      },
++      "engines": {
++        "node": ">= 6"
++      }
++    },
++    "node_modules/fork-ts-checker-webpack-plugin/node_modules/readdirp": {
++      "version": "3.6.0",
++      "resolved": "https://registry.npmmirror.com/readdirp/-/readdirp-3.6.0.tgz",
++      "integrity": "sha512-hOS089on8RduqdbhvQ5Z37A0ESjsqz6qnRcffsMU3495FuTdqSm+7bhJ29JvIOsBDEEnan5DPu9t3To9VRlMzA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "picomatch": "^2.2.1"
++      },
++      "engines": {
++        "node": ">=8.10.0"
++      }
++    },
++    "node_modules/fork-ts-checker-webpack-plugin/node_modules/schema-utils": {
++      "version": "2.7.0",
++      "resolved": "https://registry.npmmirror.com/schema-utils/-/schema-utils-2.7.0.tgz",
++      "integrity": "sha512-0ilKFI6QQF5nxDZLFn2dMjvc4hjg/Wkg7rHd3jK6/A4a1Hl9VFdQWvgB1UMGoU94pad1P/8N7fMcEnLnSiju8A==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@types/json-schema": "^7.0.4",
++        "ajv": "^6.12.2",
++        "ajv-keywords": "^3.4.1"
++      },
++      "engines": {
++        "node": ">= 8.9.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/webpack"
++      }
++    },
++    "node_modules/fork-ts-checker-webpack-plugin/node_modules/semver": {
++      "version": "7.7.2",
++      "resolved": "https://registry.npmmirror.com/semver/-/semver-7.7.2.tgz",
++      "integrity": "sha512-RF0Fw+rO5AMf9MAyaRXI4AV0Ulj5lMHqVxxdSgiVbixSCXoEmmX/jk0CuJw4+3SqroYO9VoUh+HcuJivvtJemA==",
++      "dev": true,
++      "license": "ISC",
++      "bin": {
++        "semver": "bin/semver.js"
++      },
++      "engines": {
++        "node": ">=10"
++      }
++    },
++    "node_modules/fork-ts-checker-webpack-plugin/node_modules/tapable": {
++      "version": "1.1.3",
++      "resolved": "https://registry.npmmirror.com/tapable/-/tapable-1.1.3.tgz",
++      "integrity": "sha512-4WK/bYZmj8xLr+HUCODHGF1ZFzsYffasLUgEiMBY4fgtltdO6B4WJtlSbPaDTLpYTcGVwM2qLnFTICEcNxs3kA==",
++      "dev": true,
++      "license": "MIT",
++      "engines": {
++        "node": ">=6"
++      }
++    },
+     "node_modules/form-data": {
+-      "version": "4.0.2",
+-      "resolved": "https://registry.npmmirror.com/form-data/-/form-data-4.0.2.tgz",
+-      "integrity": "sha512-hGfm/slu0ZabnNt4oaRZ6uREyfCj6P4fT/n6A1rGV+Z0VdGXjfOhVUpkn6qVQONHGIFwmveGXyDs75+nr6FM8w==",
++      "version": "4.0.4",
++      "resolved": "https://registry.npmmirror.com/form-data/-/form-data-4.0.4.tgz",
++      "integrity": "sha512-KrGhL9Q4zjj0kiUt5OO4Mr/A/jlI2jDYs5eHBpYHPcBEVSiipAvn2Ko2HnPe20rmcuuvMHNdZFp+4IlGTMF0Ow==",
+       "peer": true,
+       "dependencies": {
+         "asynckit": "^0.4.0",
+         "combined-stream": "^1.0.8",
+         "es-set-tostringtag": "^2.1.0",
++        "hasown": "^2.0.2",
+         "mime-types": "^2.1.12"
+       },
+       "engines": {
+@@ -7456,6 +7771,22 @@
+         "sourcemap-codec": "^1.4.8"
+       }
+     },
++    "node_modules/make-dir": {
++      "version": "3.1.0",
++      "resolved": "https://registry.npmmirror.com/make-dir/-/make-dir-3.1.0.tgz",
++      "integrity": "sha512-g3FeP20LNwhALb/6Cz6Dd4F2ngze0jz7tbzrD2wAV+o9FeNHe4rL+yK2md0J/fiSf1sa1ADhXqi5+oVwOM/eGw==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "semver": "^6.0.0"
++      },
++      "engines": {
++        "node": ">=8"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/sindresorhus"
++      }
++    },
+     "node_modules/math-intrinsics": {
+       "version": "1.1.0",
+       "resolved": "https://registry.npmmirror.com/math-intrinsics/-/math-intrinsics-1.1.0.tgz",
+@@ -8295,6 +8626,19 @@
+         "url": "https://github.com/sponsors/jonschlinkert"
+       }
+     },
++    "node_modules/pkg-dir": {
++      "version": "4.2.0",
++      "resolved": "https://registry.npmmirror.com/pkg-dir/-/pkg-dir-4.2.0.tgz",
++      "integrity": "sha512-HRDzbaKjC+AOWVXxAU/x54COGeIv9eb+6CkDSQoNTt4XyWoIJvuPsXizxu/Fr23EiekbtZwmh1IcIG/l/a10GQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "find-up": "^4.0.0"
++      },
++      "engines": {
++        "node": ">=8"
++      }
++    },
+     "node_modules/portfinder": {
+       "version": "1.0.35",
+       "resolved": "https://registry.npmmirror.com/portfinder/-/portfinder-1.0.35.tgz",
+@@ -10784,6 +11128,67 @@
+       "integrity": "sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==",
+       "dev": true
+     },
++    "node_modules/ts-loader": {
++      "version": "9.5.4",
++      "resolved": "https://registry.npmmirror.com/ts-loader/-/ts-loader-9.5.4.tgz",
++      "integrity": "sha512-nCz0rEwunlTZiy6rXFByQU1kVVpCIgUpc/psFiKVrUwrizdnIbRFu8w7bxhUF0X613DYwT4XzrZHpVyMe758hQ==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "chalk": "^4.1.0",
++        "enhanced-resolve": "^5.0.0",
++        "micromatch": "^4.0.0",
++        "semver": "^7.3.4",
++        "source-map": "^0.7.4"
++      },
++      "engines": {
++        "node": ">=12.0.0"
++      },
++      "peerDependencies": {
++        "typescript": "*",
++        "webpack": "^5.0.0"
++      }
++    },
++    "node_modules/ts-loader/node_modules/chalk": {
++      "version": "4.1.2",
++      "resolved": "https://registry.npmmirror.com/chalk/-/chalk-4.1.2.tgz",
++      "integrity": "sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "ansi-styles": "^4.1.0",
++        "supports-color": "^7.1.0"
++      },
++      "engines": {
++        "node": ">=10"
++      },
++      "funding": {
++        "url": "https://github.com/chalk/chalk?sponsor=1"
++      }
++    },
++    "node_modules/ts-loader/node_modules/semver": {
++      "version": "7.7.2",
++      "resolved": "https://registry.npmmirror.com/semver/-/semver-7.7.2.tgz",
++      "integrity": "sha512-RF0Fw+rO5AMf9MAyaRXI4AV0Ulj5lMHqVxxdSgiVbixSCXoEmmX/jk0CuJw4+3SqroYO9VoUh+HcuJivvtJemA==",
++      "dev": true,
++      "license": "ISC",
++      "bin": {
++        "semver": "bin/semver.js"
++      },
++      "engines": {
++        "node": ">=10"
++      }
++    },
++    "node_modules/ts-loader/node_modules/source-map": {
++      "version": "0.7.6",
++      "resolved": "https://registry.npmmirror.com/source-map/-/source-map-0.7.6.tgz",
++      "integrity": "sha512-i5uvt8C3ikiWeNZSVZNWcfZPItFQOsYTUAOkcUPGd8DqDy1uOUikjt5dG+uRlwyvR108Fb9DOd4GvXfT0N2/uQ==",
++      "dev": true,
++      "license": "BSD-3-Clause",
++      "engines": {
++        "node": ">= 12"
++      }
++    },
+     "node_modules/tslib": {
+       "version": "2.8.1",
+       "resolved": "https://registry.npmmirror.com/tslib/-/tslib-2.8.1.tgz",
+@@ -10902,6 +11307,20 @@
+         "url": "https://github.com/sponsors/ljharb"
+       }
+     },
++    "node_modules/typescript": {
++      "version": "5.5.4",
++      "resolved": "https://registry.npmmirror.com/typescript/-/typescript-5.5.4.tgz",
++      "integrity": "sha512-Mtq29sKDAEYP7aljRgtPOpTvOfbwRWlS6dPRzwjdE+C0R4brX/GUyhHSecbHMFLNBLcJIPt9nl9yG5TZ1weH+Q==",
++      "dev": true,
++      "license": "Apache-2.0",
++      "bin": {
++        "tsc": "bin/tsc",
++        "tsserver": "bin/tsserver"
++      },
++      "engines": {
++        "node": ">=14.17"
++      }
++    },
+     "node_modules/unbox-primitive": {
+       "version": "1.1.0",
+       "resolved": "https://registry.npmmirror.com/unbox-primitive/-/unbox-primitive-1.1.0.tgz",
+@@ -10921,10 +11340,11 @@
+       }
+     },
+     "node_modules/undici-types": {
+-      "version": "6.20.0",
+-      "resolved": "https://registry.npmmirror.com/undici-types/-/undici-types-6.20.0.tgz",
+-      "integrity": "sha512-Ny6QZ2Nju20vw1SRHe3d9jVu6gJ+4e3+MMpqu7pqE5HT6WsTSlce++GQmK5UXS8mzV8DSYHrQH+Xrf2jVcuKNg==",
+-      "dev": true
++      "version": "6.21.0",
++      "resolved": "https://registry.npmmirror.com/undici-types/-/undici-types-6.21.0.tgz",
++      "integrity": "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==",
++      "dev": true,
++      "license": "MIT"
+     },
+     "node_modules/unicode-canonical-property-names-ecmascript": {
+       "version": "2.0.1",
+diff --git a/main/manager-web/package.json b/main/manager-web/package.json
+index 55e275d9..7c5aaf8c 100644
+--- a/main/manager-web/package.json
++++ b/main/manager-web/package.json
+@@ -16,7 +16,7 @@
+     "normalize.css": "^8.0.1",
+     "opus-decoder": "^0.7.7",
+     "opus-recorder": "^8.0.5",
+-    "vue": "^2.6.14",
++    "vue": "^2.7.16",
+     "vue-axios": "^3.5.2",
+     "vue-router": "^3.6.5",
+     "vuex": "^3.6.2",
+@@ -25,13 +25,16 @@
+   "devDependencies": {
+     "@babel/plugin-syntax-dynamic-import": "^7.8.3",
+     "@babel/plugin-transform-runtime": "^7.26.10",
+-    "@vue/cli-plugin-router": "~5.0.0",
+-    "@vue/cli-plugin-vuex": "~5.0.0",
+-    "@vue/cli-service": "~5.0.0",
++    "@types/node": "^20.19.11",
++    "@vue/cli-plugin-router": "^5.0.8",
++    "@vue/cli-plugin-typescript": "^5.0.8",
++    "@vue/cli-plugin-vuex": "^5.0.8",
++    "@vue/cli-service": "^5.0.8",
+     "compression-webpack-plugin": "^11.1.0",
+     "sass": "^1.32.7",
+     "sass-loader": "^12.0.0",
+-    "vue-template-compiler": "^2.6.14",
++    "typescript": "5.5",
++    "vue-template-compiler": "^2.7.16",
+     "webpack-bundle-analyzer": "^4.10.2",
+     "workbox-webpack-plugin": "^7.3.0"
+   },
+diff --git a/main/manager-web/src/main.js b/main/manager-web/src/main.ts
+similarity index 100%
+rename from main/manager-web/src/main.js
+rename to main/manager-web/src/main.ts
+diff --git a/main/manager-web/src/shims-vue.d.ts b/main/manager-web/src/shims-vue.d.ts
+new file mode 100644
+index 00000000..d9f24faa
+--- /dev/null
++++ b/main/manager-web/src/shims-vue.d.ts
+@@ -0,0 +1,4 @@
++declare module '*.vue' {
++  import Vue from 'vue'
++  export default Vue
++}
+diff --git a/main/manager-web/src/store/index.js b/main/manager-web/src/store/index.js
+deleted file mode 100644
+index 08dd5042..00000000
+--- a/main/manager-web/src/store/index.js
++++ /dev/null
+@@ -1,86 +0,0 @@
+-import { goToPage } from "@/utils";
+-import Vue from 'vue';
+-import Vuex from 'vuex';
+-import Api from '../apis/api';
+-import Constant from '../utils/constant';
+-
+-Vue.use(Vuex)
+-
+-export default new Vuex.Store({
+-  state: {
+-    token: '',
+-    userInfo: {}, // 添加用户信息存储
+-    isSuperAdmin: false, // 添加superAdmin状态
+-    pubConfig: { // 添加公共配置存储
+-      version: '',
+-      beianIcpNum: 'null',
+-      beianGaNum: 'null',
+-      allowUserRegister: false
+-    }
+-  },
+-  getters: {
+-    getToken(state) {
+-      if (!state.token) {
+-        state.token = localStorage.getItem('token')
+-      }
+-      return state.token
+-    },
+-    getUserInfo(state) {
+-      return state.userInfo
+-    },
+-    getIsSuperAdmin(state) {
+-      if (localStorage.getItem('isSuperAdmin') === null) {
+-        return state.isSuperAdmin
+-      }
+-      return localStorage.getItem('isSuperAdmin') === 'true'
+-    },
+-    getPubConfig(state) {
+-      return state.pubConfig
+-    }
+-  },
+-  mutations: {
+-    setToken(state, token) {
+-      state.token = token
+-      localStorage.setItem('token', token)
+-    },
+-    setUserInfo(state, userInfo) {
+-      state.userInfo = userInfo
+-      const isSuperAdmin = userInfo.superAdmin === 1
+-      state.isSuperAdmin = isSuperAdmin
+-      localStorage.setItem('isSuperAdmin', isSuperAdmin)
+-    },
+-    setPubConfig(state, config) {
+-      state.pubConfig = config
+-    },
+-    clearAuth(state) {
+-      state.token = ''
+-      state.userInfo = {}
+-      state.isSuperAdmin = false
+-      localStorage.removeItem('token')
+-      localStorage.removeItem('isSuperAdmin')
+-    }
+-  },
+-  actions: {
+-    // 添加 logout action
+-    logout({ commit }) {
+-      return new Promise((resolve) => {
+-        commit('clearAuth')
+-        goToPage(Constant.PAGE.LOGIN, true);
+-        window.location.reload(); // 彻底重置状态
+-      })
+-    },
+-    // 添加获取公共配置的 action
+-    fetchPubConfig({ commit }) {
+-      return new Promise((resolve) => {
+-        Api.user.getPubConfig(({ data }) => {
+-          if (data.code === 0) {
+-            commit('setPubConfig', data.data);
+-          }
+-          resolve();
+-        });
+-      });
+-    }
+-  },
+-  modules: {
+-  }
+-})
+\ No newline at end of file
+diff --git a/main/manager-web/src/store/index.ts b/main/manager-web/src/store/index.ts
+new file mode 100644
+index 00000000..2e4aceee
+--- /dev/null
++++ b/main/manager-web/src/store/index.ts
+@@ -0,0 +1,104 @@
++// src/store/index.ts
++import Vue from 'vue'
++import Vuex, { ActionTree, GetterTree, MutationTree, StoreOptions } from 'vuex'
++import type { RootState, UserInfo, PubConfig } from './types'
++import { goToPage } from '@/utils'
++import Api from '@/apis/api'
++import Constant from '@/utils/constant'
++
++Vue.use(Vuex)
++
++const state: RootState = {
++  token: '', // 添加token存储
++  userInfo: {}, // 添加用户信息存储
++  isSuperAdmin: false, // 添加superAdmin状态
++  pubConfig: { // 添加公共配置存储
++    version: '',
++    beianIcpNum: '',
++    beianGaNum: '',
++    allowUserRegister: false
++  }
++}
++
++const getters: GetterTree<RootState, RootState> = {
++  getToken(state): string {
++    if (!state.token) {
++      state.token = localStorage.getItem('token') || ''
++    }
++    return state.token
++  },
++  getUserInfo(state): UserInfo {
++    return state.userInfo
++  },
++  getIsSuperAdmin(state): boolean {
++    const cached = localStorage.getItem('isSuperAdmin')
++    if (cached === null) {
++      return state.isSuperAdmin
++    }
++    return cached === 'true'
++  },
++  getPubConfig(state): PubConfig {
++    return state.pubConfig
++  }
++}
++
++const mutations: MutationTree<RootState> = {
++  setToken(state, token: string) {
++    state.token = token
++    localStorage.setItem('token', token)
++  },
++
++  setUserInfo(state, userInfo: UserInfo) {
++    state.userInfo = userInfo
++    const isSuperAdmin = userInfo.superAdmin === 1 || userInfo.superAdmin === true
++    state.isSuperAdmin = isSuperAdmin
++    localStorage.setItem('isSuperAdmin', String(isSuperAdmin))
++  },
++
++  setPubConfig(state, config: PubConfig | Partial<PubConfig>) {
++    // 允许后端只返回部分字段，这里做一次合并
++    state.pubConfig = { ...state.pubConfig, ...config }
++  },
++
++  clearAuth(state) {
++    state.token = ''
++    state.userInfo = {}
++    state.isSuperAdmin = false
++    localStorage.removeItem('token')
++    localStorage.removeItem('isSuperAdmin')
++  }
++}
++
++const actions: ActionTree<RootState, RootState> = {
++  // 添加 logout action
++  logout({ commit }): Promise<void> {
++    return new Promise((resolve) => {
++      commit('clearAuth')
++      goToPage(Constant.PAGE.LOGIN, true)
++      resolve()
++      window.location.reload() // 彻底重置状态
++    })
++  },
++
++  fetchPubConfig({ commit }): Promise<void> {
++    return new Promise((resolve) => {
++      Api.user.getPubConfig(({ data }: any) => {
++        if (data && data.code === 0) {
++          commit('setPubConfig', data.data as Partial<PubConfig>)
++        }
++        resolve()
++      })
++    })
++  }
++}
++
++const storeOptions: StoreOptions<RootState> = {
++  state,
++  getters,
++  mutations,
++  actions,
++  modules: {}
++}
++
++const store = new Vuex.Store<RootState>(storeOptions)
++export default store
+diff --git a/main/manager-web/src/store/types.ts b/main/manager-web/src/store/types.ts
+new file mode 100644
+index 00000000..3f69d870
+--- /dev/null
++++ b/main/manager-web/src/store/types.ts
+@@ -0,0 +1,28 @@
++// src/store/types.ts
++
++export interface UserInfo {
++    superAdmin?: number | boolean
++    // 其余后端返回的字段先不细化，保持可扩展
++    [key: string]: any
++}
++
++export interface MobileAreaItem {
++    key: string
++    name: string
++}
++
++export interface PubConfig {
++    version: string
++    beianIcpNum: string | null
++    beianGaNum: string | null
++    allowUserRegister: boolean
++    enableMobileRegister?: boolean
++    mobileAreaList?: MobileAreaItem[]
++}
++
++export interface RootState {
++    token: string
++    userInfo: UserInfo
++    isSuperAdmin: boolean
++    pubConfig: PubConfig
++}
+diff --git a/main/manager-web/src/utils/index.js b/main/manager-web/src/utils/index.js
+index aef8de0a..09c61822 100755
+--- a/main/manager-web/src/utils/index.js
++++ b/main/manager-web/src/utils/index.js
+@@ -95,7 +95,7 @@ export function showSuccess(msg) {
+  * @param path
+  * @param isRepalce
+  */
+-export function goToPage(path, isRepalce) {
++export function goToPage(path, isRepalce = false) {
+     if (isRepalce) {
+         router.replace(path)
+     } else {
+diff --git a/main/manager-web/src/views/login.vue b/main/manager-web/src/views/login.vue
+index 24c601d9..ec211d43 100644
+--- a/main/manager-web/src/views/login.vue
++++ b/main/manager-web/src/views/login.vue
+@@ -7,18 +7,19 @@
+           <img loading="lazy" alt="" src="@/assets/xiaozhi-ai.png" style="height: 18px;" />
+         </div>
+       </el-header>
++
+       <div class="login-person">
+         <img loading="lazy" alt="" src="@/assets/login/login-person.png" style="width: 100%;" />
+       </div>
++
+       <el-main style="position: relative;">
+         <div class="login-box" @keyup.enter="login">
+           <div style="display: flex;align-items: center;gap: 20px;margin-bottom: 39px;padding: 0 30px;">
+             <img loading="lazy" alt="" src="@/assets/login/hi.png" style="width: 34px;height: 34px;" />
+             <div class="login-text">登录</div>
+-            <div class="login-welcome">
+-              WELCOME TO LOGIN
+-            </div>
++            <div class="login-welcome">WELCOME TO LOGIN</div>
+           </div>
++
+           <div style="padding: 0 30px;">
+             <!-- 用户名登录 -->
+             <template v-if="!isMobileLogin">
+@@ -33,8 +34,12 @@
+               <div class="input-box">
+                 <div style="display: flex; align-items: center; width: 100%;">
+                   <el-select v-model="form.areaCode" style="width: 220px; margin-right: 10px;">
+-                    <el-option v-for="item in mobileAreaList" :key="item.key" :label="`${item.name} (${item.key})`"
+-                      :value="item.key" />
++                    <el-option
++                      v-for="item in mobileAreaList"
++                      :key="item.key"
++                      :label="`${item.name} (${item.key})`"
++                      :value="item.key"
++                    />
+                   </el-select>
+                   <el-input v-model="form.mobile" placeholder="请输入手机号码" />
+                 </div>
+@@ -45,31 +50,49 @@
+               <img loading="lazy" alt="" class="input-icon" src="@/assets/login/password.png" />
+               <el-input v-model="form.password" placeholder="请输入密码" type="password" show-password />
+             </div>
++
+             <div style="display: flex; align-items: center; margin-top: 20px; width: 100%; gap: 10px;">
+               <div class="input-box" style="width: calc(100% - 130px); margin-top: 0;">
+                 <img loading="lazy" alt="" class="input-icon" src="@/assets/login/shield.png" />
+                 <el-input v-model="form.captcha" placeholder="请输入验证码" style="flex: 1;" />
+               </div>
+-              <img loading="lazy" v-if="captchaUrl" :src="captchaUrl" alt="验证码"
+-                style="width: 150px; height: 40px; cursor: pointer;" @click="fetchCaptcha" />
++              <img
++                loading="lazy"
++                v-if="captchaUrl"
++                :src="captchaUrl"
++                alt="验证码"
++                style="width: 150px; height: 40px; cursor: pointer;"
++                @click="fetchCaptcha"
++              />
+             </div>
++
+             <div
+-              style="font-weight: 400;font-size: 14px;text-align: left;color: #5778ff;display: flex;justify-content: space-between;margin-top: 20px;">
++              style="font-weight: 400;font-size: 14px;text-align: left;color: #5778ff;display: flex;justify-content: space-between;margin-top: 20px;"
++            >
+               <div v-if="allowUserRegister" style="cursor: pointer;" @click="goToRegister">新用户注册</div>
+               <div style="cursor: pointer;" @click="goToForgetPassword" v-if="enableMobileRegister">忘记密码?</div>
+             </div>
+           </div>
++
+           <div class="login-btn" @click="login">登录</div>
+ 
+           <!-- 登录方式切换按钮 -->
+           <div class="login-type-container" v-if="enableMobileRegister">
+             <el-tooltip content="手机号码登录" placement="bottom">
+-              <el-button :type="isMobileLogin ? 'primary' : 'default'" icon="el-icon-mobile" circle
+-                @click="switchLoginType('mobile')"></el-button>
++              <el-button
++                :type="isMobileLogin ? 'primary' : 'default'"
++                icon="el-icon-mobile"
++                circle
++                @click="switchLoginType('mobile')"
++              />
+             </el-tooltip>
+             <el-tooltip content="用户名登录" placement="bottom">
+-              <el-button :type="!isMobileLogin ? 'primary' : 'default'" icon="el-icon-user" circle
+-                @click="switchLoginType('username')"></el-button>
++              <el-button
++                :type="!isMobileLogin ? 'primary' : 'default'"
++                icon="el-icon-user"
++                circle
++                @click="switchLoginType('username')"
++              />
+             </el-tooltip>
+           </div>
+ 
+@@ -81,6 +104,7 @@
+           </div>
+         </div>
+       </el-main>
++
+       <el-footer>
+         <version-footer />
+       </el-footer>
+@@ -88,139 +112,174 @@
+   </div>
+ </template>
+ 
+-<script>
+-import Api from '@/apis/api';
+-import VersionFooter from '@/components/VersionFooter.vue';
+-import { getUUID, goToPage, showDanger, showSuccess, validateMobile } from '@/utils';
+-import { mapState } from 'vuex';
++<script lang="ts">
++import Vue from 'vue'
++import Api from '@/apis/api'
++import VersionFooter from '@/components/VersionFooter.vue'
++import { getUUID, goToPage, showDanger, showSuccess, validateMobile } from '@/utils'
++import { mapState } from 'vuex'
++import { RootState } from '@/store/types'
+ 
+-export default {
++/** 手机区号下拉的条目类型 */
++interface MobileAreaItem {
++  key: string
++  name: string
++}
++
++/** 登录表单类型 */
++interface LoginForm {
++  username: string
++  password: string
++  captcha: string
++  captchaId: string
++  areaCode: string
++  mobile: string
++}
++
++type LoginType = 'mobile' | 'username'
++
++export default Vue.extend({
+   name: 'login',
+   components: {
+     VersionFooter
+   },
++
+   computed: {
+     ...mapState({
+-      allowUserRegister: state => state.pubConfig.allowUserRegister,
+-      enableMobileRegister: state => state.pubConfig.enableMobileRegister,
+-      mobileAreaList: state => state.pubConfig.mobileAreaList
++      allowUserRegister: (state: RootState): boolean => state.pubConfig.allowUserRegister,
++      enableMobileRegister: (state: RootState): boolean => state.pubConfig.enableMobileRegister,
++      mobileAreaList: (state: RootState): MobileAreaItem[] => state.pubConfig.mobileAreaList
+     })
+   },
++
+   data() {
++    const form: LoginForm = {
++      username: '',
++      password: '',
++      captcha: '',
++      captchaId: '',
++      areaCode: '+86',
++      mobile: ''
++    }
+     return {
+-      activeName: "username",
+-      form: {
+-        username: '',
+-        password: '',
+-        captcha: '',
+-        captchaId: '',
+-        areaCode: '+86',
+-        mobile: ''
+-      },
+-      captchaUuid: '',
+-      captchaUrl: '',
+-      isMobileLogin: false
++      activeName: 'username' as LoginType,
++      form,
++      captchaUuid: '' as string,
++      captchaUrl: '' as string,
++      isMobileLogin: false as boolean
+     }
+   },
++
+   mounted() {
+-    this.fetchCaptcha();
++    this.fetchCaptcha()
++    // 这里的 enableMobileRegister 是 mapState 注入的计算属性，
++    // 在没做 Vuex 类型增强前，TS 不知道它的存在，所以用 (this as any) 读取。
+     this.$store.dispatch('fetchPubConfig').then(() => {
+-      // 根据配置决定默认登录方式
+-      this.isMobileLogin = this.enableMobileRegister;
+-    });
++      this.isMobileLogin = (this as any).enableMobileRegister as boolean
++    })
+   },
++
+   methods: {
+-    fetchCaptcha() {
++    fetchCaptcha(this: any) {
+       if (this.$store.getters.getToken) {
+         if (this.$route.path !== '/home') {
+           this.$router.push('/home')
+         }
+-      } else {
+-        this.captchaUuid = getUUID();
+-
+-        Api.user.getCaptcha(this.captchaUuid, (res) => {
+-          if (res.status === 200) {
+-            const blob = new Blob([res.data], { type: res.data.type });
+-            this.captchaUrl = URL.createObjectURL(blob);
+-          } else {
+-            showDanger('验证码加载失败，点击刷新');
+-          }
+-        });
++        return
+       }
++
++      this.captchaUuid = getUUID()
++
++      Api.user.getCaptcha(this.captchaUuid, (res: any) => {
++        if (res.status === 200) {
++          const blob = new Blob([res.data], { type: res.data.type })
++          this.captchaUrl = URL.createObjectURL(blob)
++        } else {
++          showDanger('验证码加载失败，点击刷新')
++        }
++      })
+     },
+ 
+     // 切换登录方式
+-    switchLoginType(type) {
+-      this.isMobileLogin = type === 'mobile';
++    switchLoginType(this: any, type: LoginType) {
++      this.isMobileLogin = type === 'mobile'
+       // 清空表单
+-      this.form.username = '';
+-      this.form.mobile = '';
+-      this.form.password = '';
+-      this.form.captcha = '';
+-      this.fetchCaptcha();
++      this.form.username = ''
++      this.form.mobile = ''
++      this.form.password = ''
++      this.form.captcha = ''
++      this.fetchCaptcha()
+     },
+ 
+     // 封装输入验证逻辑
+-    validateInput(input, message) {
+-      if (!input.trim()) {
+-        showDanger(message);
+-        return false;
++    validateInput(_input: string, message: string): boolean {
++      const input = (_input || '').trim()
++      if (!input) {
++        showDanger(message)
++        return false
+       }
+-      return true;
++      return true
+     },
+ 
+-    async login() {
++    async login(this: any) {
+       if (this.isMobileLogin) {
+         // 手机号登录验证
+         if (!validateMobile(this.form.mobile, this.form.areaCode)) {
+-          showDanger('请输入正确的手机号码');
+-          return;
++          showDanger('请输入正确的手机号码')
++          return
+         }
+         // 拼接手机号作为用户名
+-        this.form.username = this.form.areaCode + this.form.mobile;
++        this.form.username = this.form.areaCode + this.form.mobile
+       } else {
+         // 用户名登录验证
+         if (!this.validateInput(this.form.username, '用户名不能为空')) {
+-          return;
++          return
+         }
+       }
+ 
+       // 验证密码
+       if (!this.validateInput(this.form.password, '密码不能为空')) {
+-        return;
++        return
+       }
+       // 验证验证码
+       if (!this.validateInput(this.form.captcha, '验证码不能为空')) {
+-        return;
++        return
+       }
+ 
+       this.form.captchaId = this.captchaUuid
+-      Api.user.login(this.form, ({ data }) => {
+-        showSuccess('登录成功！');
+-        this.$store.commit('setToken', JSON.stringify(data.data));
+-        goToPage('/home');
+-      }, (err) => {
+-        showDanger(err.data.msg || '登录失败')
+-        if (err.data != null && err.data.msg != null && err.data.msg.indexOf('图形验证码') > -1) {
+-          this.fetchCaptcha()
++
++      Api.user.login(
++        this.form,
++        ({ data }: any) => {
++          showSuccess('登录成功！')
++          this.$store.commit('setToken', JSON.stringify(data.data))
++          goToPage('/home')
++        },
++        (err: any) => {
++          showDanger((err.data && err.data.msg) || '登录失败')
++          if (err.data != null && err.data.msg != null && err.data.msg.indexOf('图形验证码') > -1) {
++            this.fetchCaptcha()
++          }
+         }
+-      })
++      )
+ 
+       // 重新获取验证码
+       setTimeout(() => {
+-        this.fetchCaptcha();
+-      }, 1000);
++        this.fetchCaptcha()
++      }, 1000)
+     },
+ 
+     goToRegister() {
+       goToPage('/register')
+     },
++
+     goToForgetPassword() {
+       goToPage('/retrieve-password')
+-    },
++    }
+   }
+-}
++})
+ </script>
++
+ <style lang="scss" scoped>
+ @import './auth.scss';
+ 
+diff --git a/main/manager-web/types/element-ui-augment.d.ts b/main/manager-web/types/element-ui-augment.d.ts
+new file mode 100644
+index 00000000..923af73b
+--- /dev/null
++++ b/main/manager-web/types/element-ui-augment.d.ts
+@@ -0,0 +1,8 @@
++import 'vue'
++declare module 'vue/types/vue' {
++  interface Vue {
++    $message: any
++    $confirm: any
++    $notify: any
++  }
++}
+diff --git a/main/manager-web/types/styles.d.ts b/main/manager-web/types/styles.d.ts
+new file mode 100644
+index 00000000..8425e180
+--- /dev/null
++++ b/main/manager-web/types/styles.d.ts
+@@ -0,0 +1,2 @@
++declare module '*.css'
++declare module '*.scss'
+diff --git a/main/manager-web/types/vuex-augment.d.ts b/main/manager-web/types/vuex-augment.d.ts
+new file mode 100644
+index 00000000..a0b8e3a0
+--- /dev/null
++++ b/main/manager-web/types/vuex-augment.d.ts
+@@ -0,0 +1,10 @@
++// types/vuex-augment.d.ts
++import 'vue'
++import { Store } from 'vuex'
++import type { RootState } from '@/store/types'
++
++declare module 'vue/types/vue' {
++    interface Vue {
++        $store: Store<RootState>
++    }
++}
+diff --git a/main/manager-web/vue.config.js b/main/manager-web/vue.config.js
+index 6b6ba4f2..dddd0d1d 100644
+--- a/main/manager-web/vue.config.js
++++ b/main/manager-web/vue.config.js
+@@ -11,7 +11,7 @@ const { InjectManifest } = require('workbox-webpack-plugin');
+ // 引入 path 模块
+ 
+ const path = require('path')
+- 
++
+ function resolve(dir) {
+   return path.join(__dirname, dir)
+ }
+@@ -26,7 +26,7 @@ const cdnResources = {
+     'https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css'
+   ],
+   js: [
+-    'https://unpkg.com/vue@2.6.14/dist/vue.min.js',
++    'https://unpkg.com/vue@2.7.16/dist/vue.min.js',
+     'https://unpkg.com/vue-router@3.6.5/dist/vue-router.min.js',
+     'https://unpkg.com/vuex@3.6.2/dist/vuex.min.js',
+     'https://unpkg.com/element-ui@2.15.14/lib/index.js',
