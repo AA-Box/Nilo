@@ -1,0 +1,40 @@
+# Ruff configuration for xiaozhi-server.
+#
+# Deliberately a *new* file rather than a [tool.ruff] block in pyproject.toml:
+# pyproject.toml is vendored from upstream (xinnan-tech/xiaozhi-esp32-server) and
+# every line we add there is a line that can conflict on the next upstream sync.
+# See docs/upstream-strategy.md.
+#
+# Two tiers:
+#   * This file  — the repo-wide floor. Bug-only rules, green on the vendored
+#                  tree as of today, so it can gate CI immediately.
+#   * robot/.ruff.toml — (added with the first robot code, see
+#                  docs/robot-roadmap.md Phase 0) extends this file with the
+#                  full style/typing rule set. New code is held to a high bar
+#                  without reformatting ~30k lines of upstream Python.
+
+target-version = "py312"
+line-length = 120
+
+exclude = [
+    ".venv",
+    "data",
+    "tmp",
+    "models",            # vendored third-party model source (silero-vad et al.)
+    "libs",              # prebuilt opus binaries
+]
+
+[lint]
+# Rules that flag genuine defects, never style. Keep this list short: anything
+# added here must pass on the vendored upstream tree.
+select = [
+    "E9",    # syntax / IO errors
+    "F63",   # comparison & assertion bugs (is-literal, assert-on-tuple, ...)
+    "F7",    # misplaced statements (break outside loop, return outside function)
+    "F82",   # undefined name / undefined local
+    "F811",  # redefinition of unused name
+    "PLE",   # pylint errors (bad string format, invalid __all__, ...)
+    "B002",  # unary prefix increment (`++n` is a no-op)
+    "B011",  # assert False
+    "B018",  # useless expression
+]

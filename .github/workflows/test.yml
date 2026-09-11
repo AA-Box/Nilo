@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
 
 concurrency:
@@ -10,6 +10,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint (xiaozhi-server)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install tooling
+        working-directory: main/xiaozhi-server
+        run: pip install ruff==0.16.7 mypy==1.19.1
+      - name: Ruff
+        working-directory: main/xiaozhi-server
+        run: ruff check .
+      - name: Mypy (robot/ only)
+        working-directory: main/xiaozhi-server
+        run: |
+          if [ -d robot ]; then
+            mypy
+          else
+            echo "robot/ does not exist yet — see docs/robot-roadmap.md Phase 0"
+          fi
+
   python:
     name: Python (xiaozhi-server)
     runs-on: ubuntu-latest
@@ -24,16 +47,32 @@ jobs:
         working-directory: main/xiaozhi-server
         run: |
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio freezegun
-      - name: Run smoke test
+          pip install -r requirements-dev.txt
+      - name: Run tests
         working-directory: main/xiaozhi-server
-        run: |
-          if [ -f tests/test_smoke.py ]; then
-            pytest tests/test_smoke.py -x -q
-          else
-            echo "::warning::Slice 2 not done yet — tests/test_smoke.py missing"
-            exit 0
-          fi
+        run: pytest -q
+
+  python312:
+    # The vendored requirements.txt pins torch==2.2.2, which has no cp312 wheel,
+    # so the job above stays on 3.10. New robot code targets Python 3.12+, so the
+    # test suite is also run on 3.12 against the minimal dependency slice the
+    # tests actually import (requirements-dev.txt). See docs/robot-roadmap.md
+    # Phase 0 for unpinning torch and collapsing these two jobs.
+    name: Python 3.12 (xiaozhi-server, dev deps only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'main/xiaozhi-server/requirements-dev.txt'
+      - name: Install dependencies
+        working-directory: main/xiaozhi-server
+        run: pip install -r requirements-dev.txt
+      - name: Run tests
+        working-directory: main/xiaozhi-server
+        run: pytest -q
 
   java:
     name: Java (manager-api)
