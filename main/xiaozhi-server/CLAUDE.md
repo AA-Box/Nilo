@@ -2,6 +2,37 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Read this first.** The rest of this file describes the upstream
+> `xiaozhi-esp32-server` voice assistant and is **stale in three ways**: this repository is
+> being evolved into the backend for an autonomous robot, most of `main/xiaozhi-server/` is
+> vendored upstream code that must not be edited casually, and some commands below do not
+> work.
+>
+> * Architecture and the rules for touching upstream files:
+>   [`docs/robot-architecture.md`](../../docs/robot-architecture.md)
+> * Phases and acceptance criteria: [`docs/robot-roadmap.md`](../../docs/robot-roadmap.md)
+> * How upstream is vendored and merged: [`docs/upstream-strategy.md`](../../docs/upstream-strategy.md)
+>
+> **Upstream edit budget.** `core/`, `config/`, `plugins_func/`, `models/` and
+> `requirements.txt` are vendored from `xinnan-tech/xiaozhi-esp32-server`. Every line added
+> there is a line that can conflict on the next upstream sync. Prefer a new file in a new
+> directory; when an upstream file must change, prefer the smallest hook that calls into
+> robot code. The current total budget is 14 lines across 5 files, enumerated in
+> `docs/robot-architecture.md` §4.3.
+>
+> **Commands that actually work** (from `main/xiaozhi-server/`):
+>
+> ```bash
+> pip install -r requirements-dev.txt   # dev tooling + the slice the tests need
+> pytest -q                             # the test suite (also: make test-python)
+> ruff check .                          # lint (also: make lint)
+> mypy                                  # type-check robot/ once it exists
+> ```
+>
+> This file describes `test_mcp_functions.py` and `uv run` in several places below.
+> Neither is correct: that file does not exist, and the project uses pip + venv.
+> Rewriting this document is Phase 0.4 of the roadmap.
+
 ## Project Overview
 
 This is **xiaozhi-esp32-server** - a WebSocket-based AI voice assistant server for ESP32 devices. The system provides real-time voice interaction with support for VAD, ASR, LLM, TTS, and a plugin-based smart home device control system.

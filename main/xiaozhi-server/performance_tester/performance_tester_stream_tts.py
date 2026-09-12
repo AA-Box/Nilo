@@ -7,7 +7,6 @@ import websockets
 import hmac
 import base64
 import hashlib
-import asyncio
 from urllib.parse import urlparse, urlencode
 from tabulate import tabulate
 from config.settings import load_config

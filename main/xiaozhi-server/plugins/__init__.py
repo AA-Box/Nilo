@@ -162,7 +162,6 @@ def register_plugins_to_conn(conn):
         return
 
     # 获取所有已导入的模块
-    import sys
 
     # 查找 plugins 包中已加载的模块
     plugins_modules = [
