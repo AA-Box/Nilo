@@ -4,7 +4,7 @@ from .base import BasePlugin, PluginAction
 
 
 class PluginConfig:
-    """插件配置类"""
+    """Plugin configuration"""
 
     def __init__(self, name, enabled=True, priority=100, config=None):
         self.name = name
@@ -14,7 +14,7 @@ class PluginConfig:
 
 
 class PluginManager:
-    """插件管理器 - 支持优先级、启用开关和三状态返回"""
+    """Plugin manager - supports priorities, enable switches and three-state results"""
 
     def __init__(self, config_path=None):
         self.plugins = []
@@ -25,7 +25,7 @@ class PluginManager:
             self._load_plugin_configs_from_main()
 
     def _load_plugin_configs_from_main(self):
-        """从主配置加载动态拦截器配置"""
+        """Load dynamic interceptor configs from the main config"""
         try:
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
@@ -38,10 +38,10 @@ class PluginManager:
                     config=cfg
                 )
         except Exception as e:
-            print(f"加载插件配置失败: {e}")
+            print(f"Failed to load plugin config: {e}")
 
     def register_plugin(self, plugin, config=None):
-        """注册插件"""
+        """Register a plugin"""
         if not isinstance(plugin, BasePlugin):
             return
 
@@ -66,7 +66,7 @@ class PluginManager:
             self.plugins.sort(key=lambda p: p._plugin_config.priority if hasattr(p, '_plugin_config') else 100)
 
     def load_plugins_from_config(self, config_path, conn):
-        """从配置文件加载插件"""
+        """Load plugins from a config file"""
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 plugin_config = yaml.safe_load(f)
@@ -87,17 +87,17 @@ class PluginManager:
                     plugin = plugin_class(logger=conn.logger if hasattr(conn, 'logger') else None)
                     self.register_plugin(plugin, {'enabled': enabled, 'priority': priority, 'config': plugin_info})
                 except Exception as e:
-                    print(f"加载插件 {plugin_type} 失败: {e}")
+                    print(f"Failed to load plugin {plugin_type}: {e}")
         except Exception as e:
-            print(f"加载插件配置失败: {e}")
+            print(f"Failed to load plugin config: {e}")
 
     async def process_text(self, conn, text):
-        """处理文本 - 支持三状态返回 (RELEASE/INTERCEPT/CLOSE)
+        """Process text - supports three-state results (RELEASE/INTERCEPT/CLOSE)
 
         Returns:
             tuple: (result, action)
-                - result: 处理后的文本或响应消息
-                - action: PluginAction枚举值
+                - result: processed text or response message
+                - action: PluginAction enum value
         """
         processed_text = text
 
@@ -105,35 +105,35 @@ class PluginManager:
             try:
                 result = await plugin.pre_process_text(conn, processed_text)
 
-                # 兼容旧格式 (result, bool) 和新格式 (result, PluginAction)
+                # Support the old format (result, bool) and the new format (result, PluginAction)
                 if isinstance(result, tuple) and len(result) == 2:
-                    if isinstance(result[1], bool):  # 旧格式
+                    if isinstance(result[1], bool):  # old format
                         action = PluginAction.INTERCEPT if result[1] else PluginAction.RELEASE
                         processed_text, action = result[0], action
-                    else:  # 新格式
+                    else:  # new format
                         processed_text, action = result
                 else:
-                    # 意外格式，跳过
+                    # Unexpected format, skip
                     continue
 
-                # 处理不同状态并设置连接标志位
+                # Handle each state and set the connection flag
                 if action == PluginAction.CLOSE:
                     conn.close_after_chat = True
                     return processed_text, PluginAction.CLOSE
                 elif action == PluginAction.INTERCEPT:
                     conn.close_after_chat = False
                     return processed_text, PluginAction.INTERCEPT
-                # RELEASE: 继续下一个插件，不设置标志位
+                # RELEASE: continue to the next plugin, leave the flag alone
 
             except Exception as e:
                 if hasattr(conn, 'logger'):
-                    conn.logger.error(f"插件 {plugin.name} 处理失败: {e}")
+                    conn.logger.error(f"Plugin {plugin.name} failed: {e}")
                 continue
 
         return processed_text, PluginAction.RELEASE
 
     def get_plugins_info(self):
-        """获取所有插件信息"""
+        """Get info for all plugins"""
         result = []
         for plugin in self.plugins:
             info = plugin.get_info()
@@ -144,11 +144,11 @@ class PluginManager:
         return result
 
     def get_all_plugins_count(self):
-        """获取插件总数"""
+        """Get the total plugin count"""
         return len(self.plugin_configs) if self.plugin_configs else len(self.plugins)
 
     def is_plugin_enabled(self, plugin_name):
-        """检查插件是否启用"""
+        """Check whether a plugin is enabled"""
         if plugin_name in self.plugin_configs:
             return self.plugin_configs[plugin_name].enabled
         return any(hasattr(p, 'name') and p.name == plugin_name for p in self.plugins)

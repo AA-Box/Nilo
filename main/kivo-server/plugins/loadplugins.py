@@ -1,7 +1,7 @@
 import importlib
 import pkgutil
 
-# 简单的日志记录，避免依赖 loguru
+# Minimal logger to avoid depending on loguru
 class SimpleLogger:
     def __init__(self, tag):
         self.tag = tag
@@ -17,18 +17,18 @@ logger = SimpleLogger(TAG)
 
 def auto_import_modules(package_name):
     """
-    自动导入指定包内的所有模块。
+    Auto-import all modules in the given package.
 
     Args:
-        package_name (str): 包的名称，如 'functions'。
+        package_name (str): package name, e.g. 'functions'.
     """
-    # 获取包的路径
+    # Get the package path
     package = importlib.import_module(package_name)
     package_path = package.__path__
 
-    # 遍历包内的所有模块
+    # Iterate over all modules in the package
     for _, module_name, _ in pkgutil.iter_modules(package_path):
-        # 导入模块
+        # Import the module
         full_module_name = f"{package_name}.{module_name}"
         importlib.import_module(full_module_name)
-        #logger.bind(tag=TAG).info(f"模块 '{full_module_name}' 已加载")
+        #logger.bind(tag=TAG).info(f"Module '{full_module_name}' loaded")

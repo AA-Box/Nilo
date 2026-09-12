@@ -1,4 +1,4 @@
-# 在导入 opuslib 之前处理 opus 动态库
+# Handle the opus shared library before importing opuslib
 import ctypes
 import ctypes.util
 import os
@@ -34,7 +34,7 @@ class OpusInfo(Enum):
 
 
 def _get_platform_dict() -> dict[Platform, dict]:
-    """获取平台映射字典"""
+    """Get the platform mapping dict"""
     return {
         Platform.WINDOWS: {
             "arch": Arch.WINDOWS,
@@ -55,7 +55,7 @@ def _get_platform_dict() -> dict[Platform, dict]:
 
 
 def get_platform() -> Platform:
-    """获取当前平台"""
+    """Get the current platform"""
     system = platform.system().lower()
     if system in ("windows", "win32", "cygwin"):
         return Platform.WINDOWS
@@ -65,13 +65,13 @@ def get_platform() -> Platform:
 
 
 def get_arch(system: Platform) -> tuple[str, str]:
-    """获取当前架构
+    """Get the current architecture
 
     Args:
-        system: 平台枚举值
+        system: platform enum value
 
     Returns:
-        (原始架构字符串, 标准化架构名称)
+        (raw architecture string, normalised architecture name)
     """
     architecture = platform.machine().lower()
     is_arm = "arm" in architecture or "aarch64" in architecture
@@ -84,50 +84,50 @@ def get_arch(system: Platform) -> tuple[str, str]:
 
 
 def get_lib_name(system: Platform, local: bool = True) -> str | list[str]:
-    """根据平台架构获取 Opus 库名称"""
+    """Get the Opus library name for the platform/architecture"""
     key = "name" if local else "system_name"
     platform_dict = _get_platform_dict()
     return platform_dict[system]["lib_info"].value[key]
 
 
 def get_system_info() -> tuple[Platform, str]:
-    """获取当前系统信息
+    """Get current system info
 
     Returns:
-        (平台, 架构名称)
+        (platform, architecture name)
     """
     system = get_platform()
     _, arch_name = get_arch(system)
-    logger.info(f"检测到平台架构: {system.value} {arch_name}")
+    logger.info(f"Detected platform/architecture: {system.value} {arch_name}")
     return system, arch_name
 
 
 def _build_lib_candidates(
     base_libs_path: Path, system_dir: str, arch_name: str
 ) -> list[Path]:
-    """构建库目录候选路径列表（按优先级排序）
+    """Build the list of candidate library directories (ordered by priority)
 
     Args:
-        base_libs_path: 基础 libs 目录路径
-        system_dir: 系统目录名称（如 win、mac、linux）
-        arch_name: 架构名称（如 x64、arm64）
+        base_libs_path: base libs directory path
+        system_dir: system directory name (e.g. win, mac, linux)
+        arch_name: architecture name (e.g. x64, arm64)
 
     Returns:
-        候选路径列表（按优先级排序）
+        list of candidate paths (ordered by priority)
     """
     candidates = []
 
-    # 优先级 1: 特定平台和架构的目录
+    # Priority 1: platform- and architecture-specific directory
     specific_path = base_libs_path / system_dir / arch_name
     if specific_path.is_dir():
         candidates.append(specific_path)
 
-    # 优先级 2: 特定平台的目录
+    # Priority 2: platform-specific directory
     platform_path = base_libs_path / system_dir
     if platform_path.is_dir() and platform_path not in candidates:
         candidates.append(platform_path)
 
-    # 优先级 3: 基础 libs 目录
+    # Priority 3: base libs directory
     if base_libs_path.is_dir() and base_libs_path not in candidates:
         candidates.append(base_libs_path)
 
@@ -135,16 +135,16 @@ def _build_lib_candidates(
 
 
 def get_search_paths(system: Platform, arch_name: str) -> list[tuple[str, str]]:
-    """获取库文件搜索路径列表
+    """Get the list of library search paths
 
-    按优先级：特定平台/架构 > 特定平台 > 通用 > 项目根目录
+    Priority: platform/architecture-specific > platform-specific > generic > project root
 
     Args:
-        system: 平台枚举值
-        arch_name: 架构名称
+        system: platform enum value
+        arch_name: architecture name
 
     Returns:
-        (目录路径, 文件名) 元组列表
+        list of (directory path, file name) tuples
     """
     lib_name = cast(str, get_lib_name(system))
     search_paths: list[tuple[str, str]] = []
@@ -153,38 +153,38 @@ def get_search_paths(system: Platform, arch_name: str) -> list[tuple[str, str]]:
     system_dir = platform_dict[system]["dir"]
     base_libs_path = Path(APP_DIR) / "libs"
 
-    # 如果 libs 目录不存在，直接返回项目根目录
+    # If the libs directory does not exist, return the project root directly
     if not base_libs_path.is_dir():
-        logger.debug(f"未找到 libs 目录: {base_libs_path}")
+        logger.debug(f"libs directory not found: {base_libs_path}")
         return [(APP_DIR, lib_name)]
 
-    # 候选路径列表
+    # Candidate path list
     lib_candidates = _build_lib_candidates(base_libs_path, system_dir, arch_name)
     for lib_path in lib_candidates:
         search_paths.append((str(lib_path), lib_name))
-        logger.debug(f"找到 libs 目录: {lib_path}")
+        logger.debug(f"Found libs directory: {lib_path}")
 
-    # 添加项目根目录作为最后的备选
+    # Add the project root as the last fallback
     if not search_paths or APP_DIR not in [s[0] for s in search_paths]:
         search_paths.append((APP_DIR, lib_name))
 
-    # 调试日志：显示所有搜索路径
+    # Debug log: show all search paths
     for dir_path, filename in search_paths:
         full_path = os.path.join(dir_path, filename)
         exists = os.path.exists(full_path)
-        logger.debug(f"搜索路径: {full_path} (存在: {exists})")
+        logger.debug(f"Search path: {full_path} (exists: {exists})")
 
     return search_paths
 
 
 def find_system_opus(system: Platform) -> str:
-    """从系统路径查找 Opus 库
+    """Look for the Opus library on the system path
 
     Args:
-        system: 平台枚举值
+        system: platform enum value
 
     Returns:
-        找到的库路径，未找到返回空字符串
+        path of the library found, or an empty string if not found
     """
     lib_names = get_lib_name(system, local=False)
 
@@ -195,31 +195,31 @@ def find_system_opus(system: Platform) -> str:
         try:
             system_lib_path = ctypes.util.find_library(lib_name)
             if system_lib_path:
-                logger.info(f"在系统路径中找到 Opus 库: {system_lib_path}")
+                logger.info(f"Found Opus library on system path: {system_lib_path}")
                 return system_lib_path
 
-            # 直接尝试加载库名
+            # Try loading by library name directly
             _ = ctypes.cdll.LoadLibrary(lib_name)
-            logger.info(f"直接加载系统 Opus 库: {lib_name}")
+            logger.info(f"Loaded system Opus library directly: {lib_name}")
             return lib_name
 
         except (OSError, TypeError) as e:
-            logger.debug(f"加载系统库失败: {lib_name} - {e}")
+            logger.debug(f"Failed to load system library: {lib_name} - {e}")
             continue
 
-    logger.debug("在系统中未找到 Opus 库")
+    logger.debug("Opus library not found on the system")
     return ""
 
 
 def _find_local_opus(system: Platform, arch_name: str) -> str | None:
-    """从本地搜索路径查找 Opus 库
+    """Look for the Opus library in the local search paths
 
     Args:
-        system: 平台枚举值
-        arch_name: 架构名称
+        system: platform enum value
+        arch_name: architecture name
 
     Returns:
-        找到的库文件路径，未找到返回 None
+        path of the library file found, or None if not found
     """
     search_paths = get_search_paths(system, arch_name)
 
@@ -231,11 +231,11 @@ def _find_local_opus(system: Platform, arch_name: str) -> str | None:
 
 
 def _setup_dll_search_path(system: Platform, lib_dir: str) -> None:
-    """在Windows上设置DLL搜索路径
+    """Set up the DLL search path on Windows
 
     Args:
-        system: 平台枚举值
-        lib_dir: 库文件所在目录
+        system: platform enum value
+        lib_dir: directory containing the library file
     """
     if system != Platform.WINDOWS or not lib_dir:
         return
@@ -244,19 +244,19 @@ def _setup_dll_search_path(system: Platform, lib_dir: str) -> None:
         if hasattr(os, "add_dll_directory"):
             dll_dir_handle = os.add_dll_directory(lib_dir)
             setattr(sys, "_opus_dll_dir_handle", dll_dir_handle)
-            logger.debug(f"已添加DLL搜索路径: {lib_dir}")
+            logger.debug(f"Added DLL search path: {lib_dir}")
     except OSError as e:
-        logger.warning(f"添加DLL搜索路径失败: {e}")
+        logger.warning(f"Failed to add DLL search path: {e}")
 
     os.environ["PATH"] = lib_dir + os.pathsep + os.environ.get("PATH", "")
 
 
 def _patch_find_library(lib_name: str, lib_path: str) -> None:
-    """修补 ctypes.util.find_library 函数，确保 opuslib_next 能找到 opus 库
+    """Patch ctypes.util.find_library so opuslib_next can find the opus library
 
     Args:
-        lib_name: 库名称
-        lib_path: 库文件路径
+        lib_name: library name
+        lib_path: library file path
     """
     original_find_library = ctypes.util.find_library
 
@@ -269,42 +269,42 @@ def _patch_find_library(lib_name: str, lib_path: str) -> None:
 
 
 def _load_opus_library(lib_path: str) -> bool:
-    """尝试加载 opus 库"""
+    """Try to load the opus library"""
     try:
-        # 加载库并持久化句柄到 sys 属性，防止被垃圾回收释放库句柄
+        # Load the library and keep the handle on sys so garbage collection does not release it
         cdll_instance = ctypes.CDLL(lib_path)
         setattr(sys, "_opus_cdll", cdll_instance)
-        logger.info(f"成功加载 Opus 库: {lib_path}")
+        logger.info(f"Successfully loaded Opus library: {lib_path}")
         setattr(sys, "_opus_loaded", True)
         return True
     except OSError as e:
-        logger.error(f"加载 Opus 库失败: {lib_path} - {e}")
+        logger.error(f"Failed to load Opus library: {lib_path} - {e}")
         return False
 
 
 def setup_opus() -> bool:
-    """加载 Opus 动态库 - 优先级：系统库 > 本地库
+    """Load the Opus shared library - priority: system library > local library
 
     Returns:
-        加载成功返回True，否则返回False
+        True if loaded successfully, otherwise False
     """
-    # 检查 Opus 库是否已在当前进程中完成加载，避免重复初始化
+    # Check whether the Opus library is already loaded in this process to avoid re-initialising
     if hasattr(sys, "_opus_loaded"):
-        logger.info("Opus 库已加载，跳过重复初始化")
+        logger.info("Opus library already loaded, skipping re-initialisation")
 
     system, arch_name = get_system_info()
     final_lib_path = ""
 
-    logger.info("尝试从系统路径加载 Opus 库")
+    logger.info("Trying to load Opus library from system path")
     system_lib_path = find_system_opus(system)
 
     if system_lib_path:
-        # 1. 尝试从系统路径加载
-        logger.info(f"在系统中找到 Opus 库: {system_lib_path}")
+        # 1. Try loading from the system path
+        logger.info(f"Found Opus library on the system: {system_lib_path}")
         final_lib_path = system_lib_path
     else:
-        # 2. 尝试从本地搜索路径查找
-        logger.info("系统路径未找到，尝试从本地加载 Opus 库")
+        # 2. Try the local search paths
+        logger.info("Not found on system path, trying to load Opus library locally")
         local_lib_path = _find_local_opus(system, arch_name)
 
         if local_lib_path:
@@ -312,14 +312,14 @@ def setup_opus() -> bool:
             _setup_dll_search_path(system, lib_dir)
             final_lib_path = local_lib_path
         else:
-            logger.debug("本地未找到本地 Opus 库文件")
+            logger.debug("No local Opus library file found")
 
-    # 打补丁确保 opuslib_next 能找到正确的库路径
+    # Patch so opuslib_next finds the correct library path
     if final_lib_path:
         loaded = _load_opus_library(final_lib_path)
         if loaded:
             _patch_find_library("opus", final_lib_path)
         return loaded
 
-    logger.error("无法加载 Opus 库")
+    logger.error("Unable to load Opus library")
     return False

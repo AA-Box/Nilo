@@ -1,11 +1,11 @@
 """
-向后兼容模块 - plugins_func 包
+Backward-compatibility shim - plugins_func package
 
-此模块提供向后兼容，允许旧代码继续使用 plugins_func 路径
-实际功能已迁移到 plugins 包
+Lets legacy code keep importing from the plugins_func path.
+The actual implementation has moved to the plugins package.
 """
 
-# 从新路径导入所有内容
+# Re-export everything from the new location
 from plugins.register import (
     register_function,
     register_device_function,

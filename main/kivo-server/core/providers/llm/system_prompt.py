@@ -1,8 +1,8 @@
 def get_system_prompt_for_function(functions: str) -> str:
     """
-    生成系统提示信息
-    :param functions: 可用的函数列表
-    :return: 系统提示信息
+    Build the system prompt for tool use
+    :param functions: list of available functions
+    :return: system prompt text
     """
 
     SYSTEM_PROMPT = f"""
@@ -36,13 +36,13 @@ if you got tool as follow
     "type": "function",
     "function": {{
         "name": "handle_exit_intent",
-        "description": "当用户想结束对话或需要退出系统时调用",
+        "description": "Call when the user wants to end the conversation or exit the system",
         "parameters": {{
             "type": "object",
             "properties": {{
                 "say_goodbye": {{
                     "type": "string",
-                    "description": "和用户友好结束对话的告别语",
+                    "description": "A friendly farewell to close the conversation with the user",
                 }}
             }},
             "required": ["say_goodbye"],
@@ -56,7 +56,7 @@ you should respond with the following format:
 {{
     "name": "handle_exit_intent",
     "arguments": {{
-        "say_goodbye": "再见，祝您生活愉快！"
+        "say_goodbye": "Goodbye, have a wonderful day!"
     }}
 }}
 </tool_call>

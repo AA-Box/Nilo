@@ -14,17 +14,17 @@ hass_play_music_function_desc = {
     "type": "function",
     "function": {
         "name": "hass_play_music",
-        "description": "用户想听音乐、有声书的时候使用，在房间的媒体播放器（media_player）里播放对应音频",
+        "description": "Use when the user wants to listen to music or an audiobook; plays the matching audio on the room's media player (media_player)",
         "parameters": {
             "type": "object",
             "properties": {
                 "media_content_id": {
                     "type": "string",
-                    "description": "可以是音乐或有声书的专辑名称、歌曲名、演唱者,如果未指定就填random",
+                    "description": "Album name, song title or artist of the music or audiobook; use random if not specified",
                 },
                 "entity_id": {
                     "type": "string",
-                    "description": "需要操作的音箱的设备id,homeassistant里的entity_id,media_player开头",
+                    "description": "Device id of the speaker to control, the entity_id in Home Assistant, starting with media_player",
                 },
             },
             "required": ["media_content_id", "entity_id"],
@@ -40,12 +40,12 @@ async def hass_play_music(conn: "ConnectionHandler", entity_id="", media_content
     try:
         result = await handle_hass_play_music(conn, entity_id, media_content_id)
         return ActionResponse(
-            action=Action.RECORD, result="指令已接收", response=result
+            action=Action.RECORD, result="Command received", response=result
         )
     except Exception as e:
-        logger.bind(tag=TAG).error(f"处理音乐意图错误: {e}")
+        logger.bind(tag=TAG).error(f"Error handling music intent: {e}")
         return ActionResponse(
-            action=Action.RESPONSE, result=str(e), response="播放音乐时出错了"
+            action=Action.RESPONSE, result=str(e), response="Something went wrong while playing music"
         )
 
 
@@ -63,6 +63,6 @@ async def handle_hass_play_music(
         response = await client.post(url, headers=headers, json=data)
 
     if response.status_code == 200:
-        return f"正在播放{media_content_id}的音乐"
+        return f"Now playing {media_content_id}"
     else:
-        return f"音乐播放失败，错误码: {response.status_code}"
+        return f"Music playback failed, error code: {response.status_code}"

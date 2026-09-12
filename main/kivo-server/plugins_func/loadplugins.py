@@ -1,7 +1,7 @@
 """
-向后兼容模块 - plugins_func.loadplugins
+Backward-compatibility module - plugins_func.loadplugins
 
-此模块提供向后兼容，实际从 plugins.loadplugins 导入
+This module exists for backward compatibility; the real implementation is imported from plugins.loadplugins
 """
 
 from plugins.loadplugins import auto_import_modules

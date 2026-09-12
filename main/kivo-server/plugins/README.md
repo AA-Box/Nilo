@@ -1,161 +1,175 @@
-# 统一插件系统
+# Unified plugin system
 
-## 概述
+## Overview
 
-本系统提供统一的插件管理机制，支持两种类型的插件：
+`plugins/` provides one scanning and registration mechanism for two kinds of plugins:
 
-1. **拦截插件 (Interceptors)** - 通过 `BasePlugin` 类实现，用于预处理用户输入
-2. **MCP函数插件** - 通过 `@register_function` 装饰器注册，提供工具函数
+1. **Interceptor plugins** - subclasses of `BasePlugin`; they pre-process the user's text before it reaches the LLM and may intercept it.
+2. **MCP function plugins** - tool functions registered with the `@register_function` decorator.
 
-## 目录结构
+A single plugin directory may contain both.
+
+## Directory layout
 
 ```
 plugins/
-├── __init__.py              # 统一扫描和注册逻辑
-├── base.py                  # BasePlugin 基类和 PluginAction 枚举
-├── manager.py               # PluginManager 插件管理器
-├── register.py              # @register_function 装饰器和注册系统
-├── loadplugins.py           # 模块自动导入工具
+├── __init__.py              # scan_plugins() and register_plugins_to_conn()
+├── base.py                  # BasePlugin base class and PluginAction enum
+├── manager.py               # PluginManager (per-connection plugin list, priorities)
+├── register.py              # @register_function decorator, ToolType, Action, ActionResponse, registries
+├── loadplugins.py           # auto_import_modules() helper
 │
-├── functions/               # 扁平结构的MCP函数（兼容旧版）
-│   └── ... (可选)
+├── functions/               # optional: flat legacy layout, imported with auto_import_modules() if present
 │
-└── preprocess_plugin/       # 插件示例：智能家居预处理
-    ├── __init__.py          # 插件主类
-    ├── mcp_functions.py     # MCP函数定义
-    └── intents.yaml         # 配置文件
+└── my_plugin/             # one plugin per subdirectory; needs an __init__.py
+    ├── __init__.py          # plugin class and/or @register_function tools
+    └── config.yaml          # optional: the plugin's own config files and helper modules
 ```
 
-## 插件开发
+`scan_plugins()` treats every subdirectory that has an `__init__.py` as a plugin, except names starting with `_` or `.` and the `functions/` directory.
 
-### 创建拦截插件
+The tools shipped with the server (`get_time`, `get_weather`, `play_music`, ...) still live in `plugins_func/functions/` and are loaded separately by `core/connection.py` via `auto_import_modules("plugins_func.functions")`.
+
+## Writing plugins
+
+### Interceptor plugin
 
 ```python
-# plugins/my_interceptor/__init__.py
+# plugins/my_plugin/__init__.py
 from plugins.base import BasePlugin, PluginAction
 
 class MyInterceptor(BasePlugin):
     def __init__(self, logger=None):
         self.name = "MyInterceptor"
-        self.description = "我的拦截插件"
+        self.description = "My interceptor plugin"
         self.logger = logger
 
     async def pre_process_text(self, conn, text):
-        # 返回 (处理后的文本, 动作)
-        if "特殊指令" in text:
-            return "已处理", PluginAction.CLOSE
+        # return (processed text or reply, action)
+        if "special command" in text:
+            return "Done", PluginAction.CLOSE
         return text, PluginAction.RELEASE
 ```
 
-### 创建MCP函数插件
+`register_plugins_to_conn()` instantiates every `BasePlugin` subclass it finds as `cls(logger=conn.logger)`, so the constructor must accept a `logger` keyword. `BasePlugin.speak(conn, text)` sends a spoken reply through TTS.
+
+### MCP function plugin
 
 ```python
-# plugins/my_tools/__init__.py
+# plugins/my_plugin/__init__.py
 from plugins.register import register_function, ToolType, ActionResponse, Action
 
 @register_function("get_time", {
     "type": "function",
     "function": {
         "name": "get_time",
-        "description": "获取当前时间",
+        "description": "Get the current time",
         "parameters": {"type": "object", "properties": {}, "required": []}
     }
 }, ToolType.WAIT)
 async def get_time():
-    return ActionResponse(Action.RESPONSE, "当前时间...", None)
+    return ActionResponse(Action.RESPONSE, "The current time is...", None)
 ```
 
-### 创建混合插件（推荐）
+`ToolType` values: `NONE`, `WAIT`, `CHANGE_SYS_PROMPT`, `SYSTEM_CTL`, `IOT_CTL`, `MCP_CLIENT`.
+`Action` values: `ERROR`, `NOTFOUND`, `NONE`, `RESPONSE` (reply directly), `REQLLM` (let the LLM phrase the reply), `RECORD`.
+
+### Mixed plugin (recommended)
 
 ```python
 # plugins/my_plugin/__init__.py
 from plugins.base import BasePlugin, PluginAction
 from plugins.register import register_function, ToolType, ActionResponse, Action
-from .config import load_config  # 可选：插件自己的配置
+from .config import load_config  # optional: the plugin's own config
 
-# 1. 定义拦截逻辑
+# 1. Interceptor logic
 class MyPlugin(BasePlugin):
     def __init__(self, logger=None):
         self.name = "MyPlugin"
-        self.description = "我的混合插件"
+        self.description = "My mixed plugin"
         self.logger = logger
         self.config = load_config()
 
     async def pre_process_text(self, conn, text):
-        # 拦截逻辑
         return text, PluginAction.RELEASE
 
-# 2. 定义MCP函数
+# 2. MCP functions
 @register_function("my_tool", {...}, ToolType.WAIT)
 async def my_tool(param):
-    return ActionResponse(Action.REQLLM, "结果", None)
+    return ActionResponse(Action.REQLLM, "result", None)
 ```
 
-## 使用插件
+## How plugins are loaded
 
-### 服务器启动时自动扫描
-
-在 `core/connection.py` 中：
+`core/connection.py` calls `scan_plugins()` once at import time. Each `ConnectionHandler` creates its own `PluginManager()` in `__init__` and calls `register_plugins_to_conn(self)` in `handle_connection()` after authentication:
 
 ```python
+from plugins.manager import PluginManager
 from plugins import scan_plugins, register_plugins_to_conn
 
-# 扫描所有插件（只需调用一次）
-scan_plugins()
+scan_plugins()  # once per process
 
 class ConnectionHandler:
+    def __init__(self, ...):
+        self.plugin_manager = PluginManager()
+
     async def handle_connection(self, ws):
-        # 注册插件到此连接
         register_plugins_to_conn(self)
         ...
 ```
 
-### 插件执行流程
+### Execution flow
 
 ```
-用户输入 → receiveAudioHandle.py → conn.plugin_manager.process_text()
-                                      ↓
-                              插件1.pre_process_text()
-                                      ↓
-                              插件2.pre_process_text()
-                                      ↓
-                              ... → 返回 (text, action)
+user speech → core/handle/receiveAudioHandle.py → conn.plugin_manager.process_text(conn, text)
+                                                    ↓
+                                          plugin 1.pre_process_text()   (lowest priority value first)
+                                                    ↓
+                                          plugin 2.pre_process_text()
+                                                    ↓
+                                          ... → returns (text, action)
 ```
 
-## PluginAction 枚举
+`process_text()` stops at the first plugin that returns `INTERCEPT` or `CLOSE`; on `RELEASE` the (possibly modified) text is handed to the next plugin. Legacy `(text, bool)` return values are still accepted (`True` maps to `INTERCEPT`).
 
-- `RELEASE` - 放行，继续原有流程
-- `INTERCEPT` - 拦截，返回结果但不关闭
-- `CLOSE` - 拦截并关闭连接
+## PluginAction enum
 
-## 向后兼容
+- `RELEASE` - pass through; the text continues into the normal chat flow
+- `INTERCEPT` - stop; `receiveAudioHandle` speaks the returned text via TTS and skips the LLM
+- `CLOSE` - like `INTERCEPT`, and sets `conn.close_after_chat = True` so the connection is closed afterwards
 
-旧代码仍可使用以下路径：
+## Priorities and enabling
 
-- `core.plugin` → 实际导入 `plugins`
-- `plugins_func.register` → 实际导入 `plugins.register`
-- `core.plugin.preprocess_plugin` → 实际导入 `plugins.preprocess_plugin`
+`PluginManager(config_path=...)` can read a `dynamic_interceptors:` mapping (`enabled`, `priority` per plugin name) from a YAML file; lower priority values run first. The server constructs `PluginManager()` without a path, so every discovered plugin is enabled with priority 100.
 
-## 测试
+## Backward compatibility
+
+Legacy import paths still work:
+
+- `plugins_func.register` → re-exports `plugins.register`
+- `plugins_func.loadplugins` → re-exports `plugins.loadplugins`
+- `plugins_func` → re-exports the registry classes from `plugins.register`
+
+## Testing
 
 ```bash
-# 测试插件扫描
-uv run python -c "
+# plugin scan
+python -c "
 from plugins import scan_plugins
 scan_plugins()
-print('插件扫描完成')
+print('plugin scan complete')
 "
 
-# 测试MCP函数注册
-uv run python -c "
+# MCP function registration
+python -c "
 from plugins import scan_plugins
 from plugins.register import all_function_registry
 scan_plugins()
-print('已注册函数:', list(all_function_registry.keys()))
+print('registered functions:', list(all_function_registry.keys()))
 "
 
-# 测试拦截插件注册
-uv run python -c "
+# interceptor registration
+python -c "
 from plugins import scan_plugins, register_plugins_to_conn
 from plugins.manager import PluginManager
 
@@ -166,15 +180,6 @@ class MockConn:
 scan_plugins()
 conn = MockConn()
 register_plugins_to_conn(conn)
-print(f'已注册插件: {len(conn.plugin_manager.plugins)}')
+print(f'registered plugins: {len(conn.plugin_manager.plugins)}')
 "
 ```
-
-## 优势
-
-1. **统一管理** - 所有插件在 `plugins/` 目录下
-2. **即插即用** - 自动扫描，无需手动导入
-3. **灵活结构** - 每个插件可包含子目录和配置文件
-4. **能力融合** - 一个插件可同时包含拦截和MCP能力
-5. **易于扩展** - 新插件只需创建子目录
-6. **向后兼容** - 旧代码无需修改

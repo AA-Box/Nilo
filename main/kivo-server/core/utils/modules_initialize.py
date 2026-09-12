@@ -20,17 +20,17 @@ def initialize_modules(
     init_intent=False,
 ) -> Dict[str, Any]:
     """
-    初始化所有模块组件
+    Initialize all module components
 
     Args:
-        config: 配置字典
+        config: config dictionary
 
     Returns:
-        Dict[str, Any]: 包含所有初始化后的模块的字典
+        Dict[str, Any]: dictionary of all initialized modules
     """
     modules = {}
 
-    # 初始化TTS模块
+    # Initialize the TTS module
     if init_tts:
         select_tts_module = config["selected_module"]["TTS"]
         cached_config=cache_manager.get(CacheType.CONFIG,key=f"config:{select_tts_module}",namespace="TTS")
@@ -40,10 +40,10 @@ def initialize_modules(
             modules["tts"] = initialize_tts(config)
             cache_manager.set(CacheType.CONFIG,key=f"config:{select_tts_module}",value=config["TTS"][select_tts_module],namespace="TTS")
             cache_manager.set(CacheType.CONFIG,key=f"module:{select_tts_module}",value=modules["tts"],namespace="TTS")
-        logger.bind(tag=TAG).info(f"初始化组件: tts成功 {select_tts_module}")
+        logger.bind(tag=TAG).info(f"Initialized component: tts {select_tts_module}")
         
 
-    # 初始化LLM模块
+    # Initialize the LLM module
     if init_llm:
         select_llm_module = config["selected_module"]["LLM"]
         cached_config = cache_manager.get(CacheType.CONFIG, key=f"config:{select_llm_module}", namespace="LLM")
@@ -61,9 +61,9 @@ def initialize_modules(
             )
             cache_manager.set(CacheType.CONFIG, key=f"config:{select_llm_module}", value=config["LLM"][select_llm_module], namespace="LLM")
             cache_manager.set(CacheType.CONFIG, key=f"module:{select_llm_module}", value=modules["llm"], namespace="LLM")
-        logger.bind(tag=TAG).info(f"初始化组件: llm成功 {select_llm_module}")
+        logger.bind(tag=TAG).info(f"Initialized component: llm {select_llm_module}")
 
-    # 初始化Intent模块
+    # Initialize the Intent module
     if init_intent:
         select_intent_module = config["selected_module"]["Intent"]
         cached_config = cache_manager.get(CacheType.CONFIG, key=f"config:{select_intent_module}", namespace="Intent")
@@ -81,9 +81,9 @@ def initialize_modules(
             )
             cache_manager.set(CacheType.CONFIG, key=f"config:{select_intent_module}", value=config["Intent"][select_intent_module], namespace="Intent")
             cache_manager.set(CacheType.CONFIG, key=f"module:{select_intent_module}", value=modules["intent"], namespace="Intent")
-        logger.bind(tag=TAG).info(f"初始化组件: intent成功 {select_intent_module}")
+        logger.bind(tag=TAG).info(f"Initialized component: intent {select_intent_module}")
 
-    # 初始化Memory模块
+    # Initialize the Memory module
     if init_memory:
         select_memory_module = config["selected_module"]["Memory"]
         cached_config = cache_manager.get(CacheType.CONFIG, key=f"config:{select_memory_module}", namespace="Memory")
@@ -102,9 +102,9 @@ def initialize_modules(
             )
             cache_manager.set(CacheType.CONFIG, key=f"config:{select_memory_module}", value=config["Memory"][select_memory_module], namespace="Memory")
             cache_manager.set(CacheType.CONFIG, key=f"module:{select_memory_module}", value=modules["memory"], namespace="Memory")
-        logger.bind(tag=TAG).info(f"初始化组件: memory成功 {select_memory_module}")
+        logger.bind(tag=TAG).info(f"Initialized component: memory {select_memory_module}")
 
-    # 初始化VAD模块
+    # Initialize the VAD module
     if init_vad:
         select_vad_module = config["selected_module"]["VAD"]
         cached_config = cache_manager.get(CacheType.CONFIG, key=f"config:{select_vad_module}", namespace="VAD")
@@ -122,9 +122,9 @@ def initialize_modules(
             )
             cache_manager.set(CacheType.CONFIG, key=f"config:{select_vad_module}", value=config["VAD"][select_vad_module], namespace="VAD")
             cache_manager.set(CacheType.CONFIG, key=f"module:{select_vad_module}", value=modules["vad"], namespace="VAD")
-        logger.bind(tag=TAG).info(f"初始化组件: vad成功 {select_vad_module}")
+        logger.bind(tag=TAG).info(f"Initialized component: vad {select_vad_module}")
 
-    # 初始化ASR模块
+    # Initialize the ASR module
     if init_asr:
         select_asr_module = config["selected_module"]["ASR"]
         cached_config = cache_manager.get(CacheType.CONFIG, key=f"config:{select_asr_module}", namespace="ASR")
@@ -134,7 +134,7 @@ def initialize_modules(
             modules["asr"] = initialize_asr(config)
             cache_manager.set(CacheType.CONFIG, key=f"config:{select_asr_module}", value=config["ASR"][select_asr_module], namespace="ASR")
             cache_manager.set(CacheType.CONFIG, key=f"module:{select_asr_module}", value=modules["asr"], namespace="ASR")
-        logger.bind(tag=TAG).info(f"初始化组件: asr成功 {select_asr_module}")
+        logger.bind(tag=TAG).info(f"Initialized component: asr {select_asr_module}")
     return modules
 
 
@@ -167,26 +167,26 @@ def initialize_asr(config):
         config["ASR"][select_asr_module],
         str(config.get("delete_audio", True)).lower() in ("true", "1", "yes"),
     )
-    logger.bind(tag=TAG).info("ASR模块初始化完成")
+    logger.bind(tag=TAG).info("ASR module initialized")
     return new_asr
 
 
 def initialize_voiceprint(asr_instance, config):
-    """初始化声纹识别功能"""
+    """Initialize voiceprint recognition"""
     voiceprint_config = config.get("voiceprint")
     if not voiceprint_config:
         return False  
 
-    # 应用配置
+    # Apply the config
     if not voiceprint_config.get("url") or not voiceprint_config.get("speakers"):
-        logger.bind(tag=TAG).warning("声纹识别配置不完整")
+        logger.bind(tag=TAG).warning("Voiceprint recognition config is incomplete")
         return False
         
     try:
         asr_instance.init_voiceprint(voiceprint_config)
-        logger.bind(tag=TAG).info("ASR模块声纹识别功能已动态启用")
-        logger.bind(tag=TAG).info(f"配置说话人数量: {len(voiceprint_config['speakers'])}")
+        logger.bind(tag=TAG).info("Voiceprint recognition enabled dynamically on the ASR module")
+        logger.bind(tag=TAG).info(f"Configured speaker count: {len(voiceprint_config['speakers'])}")
         return True
     except Exception as e:
-        logger.bind(tag=TAG).error(f"动态初始化声纹识别功能失败: {str(e)}")
+        logger.bind(tag=TAG).error(f"Failed to initialize voiceprint recognition dynamically: {str(e)}")
         return False

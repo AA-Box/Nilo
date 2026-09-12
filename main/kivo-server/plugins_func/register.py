@@ -1,7 +1,7 @@
 """
-向后兼容模块 - plugins_func.register
+Backward-compatibility module - plugins_func.register
 
-此模块提供向后兼容，实际从 plugins.register 导入
+Kept for backward compatibility; everything is re-exported from plugins.register
 """
 
 from plugins.register import (

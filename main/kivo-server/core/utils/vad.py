@@ -9,7 +9,7 @@ logger = setup_logging()
 
 
 def create_instance(class_name: str, *args, **kwargs) -> VADProviderBase:
-    """工厂方法创建VAD实例"""
+    """Factory method for creating a VAD instance"""
     if os.path.exists(os.path.join("core", "providers", "vad", f"{class_name}.py")):
         lib_name = f"core.providers.vad.{class_name}"
         if lib_name not in sys.modules:

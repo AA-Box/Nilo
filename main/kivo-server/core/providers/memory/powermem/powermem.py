@@ -3,7 +3,7 @@
 """
 @time: 2026/01/08
 @file: powermem.py
-@desc: PowerMem memory provider for xiaozhi-esp32-server
+@desc: PowerMem memory provider for kivo-server
        PowerMem is an open-source agent memory component from OceanBase
        GitHub: https://github.com/oceanbase/powermem
        Website: https://www.powermem.ai/
@@ -103,7 +103,7 @@ class MemoryProvider(MemoryProviderBase):
                 if config.get("embedding_model"):
                     embedder_config["model"] = config["embedding_model"]
 
-                # 自动修正：DashScope 的 text-embedding 模型需使用 qwen provider
+                # Auto-correct: DashScope text-embedding models must use the qwen provider
                 embedding_model = config.get("embedding_model", "")
                 if embedding_provider == "openai" and "text-embedding" in embedding_model:
                     embedding_provider = "qwen"
@@ -112,7 +112,7 @@ class MemoryProvider(MemoryProviderBase):
                     base_url = config.get("embedding_dashscope_base_url") or config.get("embedding_base_url")
                     if base_url:
                         embedder_config["dashscope_base_url"] = base_url
-                # openai provider 使用默认地址，不传 openai_base_url（powermem 库 bug）
+                # openai provider uses the default URL; do not pass openai_base_url (powermem library bug)
 
                 powermem_config["embedder"] = {
                     "provider": embedding_provider,
@@ -123,11 +123,11 @@ class MemoryProvider(MemoryProviderBase):
             if self.enable_user_profile:
                 from powermem import UserMemory
                 self.memory_client = UserMemory(config=powermem_config)
-                memory_mode = "UserMemory (用户画像模式)"
+                memory_mode = "UserMemory (user profile mode)"
             else:
                 from powermem import AsyncMemory
                 self.memory_client = AsyncMemory(config=powermem_config)
-                memory_mode = "AsyncMemory (普通记忆模式)"
+                memory_mode = "AsyncMemory (plain memory mode)"
 
             self.use_powermem = True
 
@@ -250,7 +250,7 @@ class MemoryProvider(MemoryProviderBase):
             if self.enable_user_profile:
                 profile = await self.get_user_profile()
                 if profile:
-                    result_parts.append(f"【用户画像】\n{profile}")
+                    result_parts.append(f"[User profile]\n{profile}")
 
             # Search memories using PowerMem SDK
             if self.enable_user_profile:
@@ -307,7 +307,7 @@ class MemoryProvider(MemoryProviderBase):
                 # Extract only the formatted strings
                 if memories:
                     memories_str = "\n".join(f"- {memory[1]}" for memory in memories)
-                    result_parts.append(f"【相关记忆】\n{memories_str}")
+                    result_parts.append(f"[Relevant memories]\n{memories_str}")
 
             final_result = "\n\n".join(result_parts)
             logger.bind(tag=TAG).debug(f"Query results: {final_result}")

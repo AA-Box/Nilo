@@ -2,32 +2,32 @@ from enum import Enum
 
 
 class PluginAction(Enum):
-    """插件返回状态枚举"""
-    RELEASE = "release"  # 放行，继续原有流程
-    INTERCEPT = "intercept"  # 拦截，返回结果
-    CLOSE = "close"  # 关闭连接，返回结果
+    """Plugin return status enum"""
+    RELEASE = "release"  # Release: continue the original flow
+    INTERCEPT = "intercept"  # Intercept: return the result
+    CLOSE = "close"  # Close the connection and return the result
 
 
 class BasePlugin:
-    """插件基类"""
+    """Plugin base class"""
 
     def __init__(self, logger=None):
         self.name = "BasePlugin"
-        self.description = "基础插件类"
+        self.description = "Base plugin class"
         self.logger = logger
 
     async def pre_process_text(self, conn, text):
-        """文本预处理方法
+        """Text pre-processing hook
 
         Returns:
             tuple: (result, action)
-                - result: 处理后的文本或响应消息
-                - action: PluginAction枚举值 (RELEASE/INTERCEPT/CLOSE)
+                - result: the processed text or a response message
+                - action: a PluginAction value (RELEASE/INTERCEPT/CLOSE)
         """
         return text, PluginAction.RELEASE
 
     def speak(self, conn, text):
-        """发送语音消息（封装TTS和队列操作）"""
+        """Send a spoken message (wraps TTS and queue handling)"""
         from core.providers.tts.dto.dto import ContentType
         from core.handle.sendAudioHandle import send_stt_message
         import asyncio
@@ -42,5 +42,5 @@ class BasePlugin:
             conn.tts.tts_one_sentence(conn, ContentType.TEXT, content_detail=text)
 
     def get_info(self):
-        """获取插件信息"""
+        """Get plugin info"""
         return {"name": self.name, "description": self.description}

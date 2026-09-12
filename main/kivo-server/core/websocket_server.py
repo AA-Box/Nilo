@@ -6,7 +6,7 @@ from config.logger import setup_logging
 
 
 class SuppressInvalidHandshakeFilter(logging.Filter):
-    """过滤掉无效握手错误日志（如HTTPS访问WS端口）"""
+    """Filter out invalid-handshake error logs (e.g. HTTPS hitting the WS port)."""
 
     def filter(self, record):
         msg = record.getMessage()
@@ -20,7 +20,7 @@ class SuppressInvalidHandshakeFilter(logging.Filter):
 
 
 def _setup_websockets_logger():
-    """配置 websockets 相关的所有 logger，过滤无效握手错误"""
+    """Attach the invalid-handshake filter to every websockets logger."""
     filter_instance = SuppressInvalidHandshakeFilter()
     for logger_name in ["websockets", "websockets.server", "websockets.client"]:
         logger = logging.getLogger(logger_name)
@@ -64,7 +64,7 @@ class WebSocketServer:
 
         auth_config = self.config["server"].get("auth", {})
         self.auth_enable = auth_config.get("enabled", False)
-        # 设备白名单
+        # Device allowlist
         self.allowed_devices = set(auth_config.get("allowed_devices", []))
         secret_key = self.config["server"]["auth_key"]
         expire_seconds = auth_config.get("expire_seconds", None)
@@ -87,10 +87,10 @@ class WebSocketServer:
     async def _handle_connection(self, websocket: websockets.ServerConnection):
         headers = dict(websocket.request.headers)
         if headers.get("device-id", None) is None:
-            # 尝试从 URL 的查询参数中获取 device-id
+            # Fall back to the device-id from the URL query string
             from urllib.parse import parse_qs, urlparse
 
-            # 从 WebSocket 请求中获取路径
+            # Path of the WebSocket request
             request_path = websocket.request.path
             if not request_path:
                 self.logger.bind(tag=TAG).error("WebSocket request has no path")
@@ -113,15 +113,15 @@ class WebSocketServer:
                     "authorization"
                 ][0]
 
-        """处理新连接，每次创建独立的ConnectionHandler"""
-        # 先认证，后建立连接
+        """Handle a new connection with its own ConnectionHandler."""
+        # Authenticate before establishing the connection
         try:
             await self._handle_auth(websocket)
         except AuthenticationError:
             await websocket.send("authentication failed")
             await websocket.close()
             return
-        # 创建ConnectionHandler时传入当前server实例
+        # Pass this server instance to the ConnectionHandler
         handler = ConnectionHandler(
             self.config,
             self._vad,
@@ -129,30 +129,30 @@ class WebSocketServer:
             self._llm,
             self._memory,
             self._intent,
-            self,  # 传入server实例
+            self,  # server instance
         )
 
-        # 插件已在 connection.py 的 handle_connection 中通过 register_plugins_to_conn 注册
-        # 此处无需重复注册，保持向后兼容
+        # Plugins are registered in connection.py's handle_connection via register_plugins_to_conn
+        # No need to register them again here; kept for backward compatibility
         
         try:
             await handler.handle_connection(websocket)
         except Exception as e:
-            self.logger.bind(tag=TAG).error(f"处理连接时出错: {e}")
+            self.logger.bind(tag=TAG).error(f"Error handling connection: {e}")
         finally:
-            # 强制关闭连接（如果还没有关闭的话）
+            # Force-close the connection if it is still open
             try:
-                # 安全地检查WebSocket状态并关闭
+                # Check the WebSocket state safely before closing
                 if hasattr(websocket, "closed") and not websocket.closed:
                     await websocket.close()
                 elif hasattr(websocket, "state") and websocket.state.name != "CLOSED":
                     await websocket.close()
                 else:
-                    # 如果没有closed属性，直接尝试关闭
+                    # No closed attribute; just try to close
                     await websocket.close()
             except Exception as close_error:
                 self.logger.bind(tag=TAG).error(
-                    f"服务器端强制关闭连接时出错: {close_error}"
+                    f"Error force-closing connection on server side: {close_error}"
                 )
 
     async def _http_response(self, websocket, request):
@@ -166,29 +166,29 @@ class WebSocketServer:
         return websocket.respond(200, "kivo-server is running\n")
 
     async def update_config(self) -> bool:
-        """更新服务器配置并重新初始化组件
+        """Refresh the server config and re-initialize components.
 
         Returns:
-            bool: 更新是否成功
+            bool: whether the update succeeded
         """
         try:
             async with self.config_lock:
-                # 重新获取配置（使用异步版本）
+                # Re-fetch the config (async version)
                 new_config = await get_config_from_api_async(self.config)
                 if new_config is None:
-                    self.logger.bind(tag=TAG).error("获取新配置失败")
+                    self.logger.bind(tag=TAG).error("Failed to fetch new config")
                     return False
-                self.logger.bind(tag=TAG).info(f"获取新配置成功")
-                # 检查 VAD 和 ASR 类型是否需要更新
+                self.logger.bind(tag=TAG).info(f"Fetched new config")
+                # Check whether the VAD and ASR types need updating
                 update_vad = check_vad_update(self.config, new_config)
                 update_asr = check_asr_update(self.config, new_config)
                 self.logger.bind(tag=TAG).info(
-                    f"检查VAD和ASR类型是否需要更新: {update_vad} {update_asr}"
+                    f"VAD/ASR update needed: {update_vad} {update_asr}"
                 )
-                # 更新配置
+                # Update config
                 self.config = new_config
                 self.protocols = registry_from_config(new_config)
-                # 重新初始化组件
+                # Re-initialize components
                 modules = initialize_modules(
                     self.logger,
                     new_config,
@@ -200,7 +200,7 @@ class WebSocketServer:
                     "Intent" in new_config["selected_module"],
                 )
 
-                # 更新组件实例
+                # Update component instances
                 if "vad" in modules:
                     self._vad = modules["vad"]
                 if "asr" in modules:
@@ -211,29 +211,29 @@ class WebSocketServer:
                     self._intent = modules["intent"]
                 if "memory" in modules:
                     self._memory = modules["memory"]
-                self.logger.bind(tag=TAG).info(f"更新配置任务执行完毕")
+                self.logger.bind(tag=TAG).info(f"Config update task completed")
                 return True
         except Exception as e:
-            self.logger.bind(tag=TAG).error(f"更新服务器配置失败: {str(e)}")
+            self.logger.bind(tag=TAG).error(f"Failed to update server config: {str(e)}")
             return False
 
     async def _handle_auth(self, websocket: websockets.ServerConnection):
-        # 先认证，后建立连接
+        # Authenticate before establishing the connection
         if self.auth_enable:
             headers = dict(websocket.request.headers)
             device_id = headers.get("device-id", None)
             client_id = headers.get("client-id", None)
             if self.allowed_devices and device_id in self.allowed_devices:
-                # 如果属于白名单内的设备，不校验token，直接放行
+                # Allowlisted devices skip token verification
                 return
             else:
-                # 否则校验token
+                # Otherwise verify the token
                 token = headers.get("authorization", "")
                 if token.startswith("Bearer "):
-                    token = token[7:]  # 移除'Bearer '前缀
+                    token = token[7:]  # Strip the 'Bearer ' prefix
                 else:
                     raise AuthenticationError("Missing or invalid Authorization header")
-                # 进行认证
+                # Authenticate
                 auth_success = self.auth.verify_token(
                     token, client_id=client_id, username=device_id
                 )
