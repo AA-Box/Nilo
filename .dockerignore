@@ -2,6 +2,8 @@
 __pycache__
 *.pyc
 .env
-Dockerfile
-tmp/
-data/
+.venv
+Dockerfile*
+docs/
+main/kivo-server/tmp/
+main/kivo-server/data/

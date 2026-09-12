@@ -1,19 +1,28 @@
 ---
-name: 功能请求（Feature Request）
-about: 提出新的功能或改进建议
-title: "[Feature] 简短描述功能"
+name: Feature request
+about: Propose a capability for Kivo
+title: "[feature] "
 labels: enhancement
 assignees: ''
 ---
 
-## 🚀 需求描述
-<!-- 清晰简洁地描述你希望发生什么 -->
+## Problem
 
-## 🎯 解决方案
-<!-- 描述你认为可行的解决方案或实现方式 -->
+<!-- What can a robot or an operator not do today? -->
 
-## 📝 备选方案
-<!-- 描述你考虑过的替代方案或功能 -->
+## Proposed behaviour
 
-## 📋 其他信息
-<!-- 在此添加关于需求的任何其他上下文信息 -->
+<!-- Describe the outcome, not the implementation. If it touches robot motion, note how it
+     respects the safety rule (the LLM requests semantic actions; firmware owns motor control). -->
+
+## Where it fits
+
+- [ ] Server / session handling
+- [ ] Audio pipeline (VAD / ASR / TTS)
+- [ ] Agent / LLM / tools / MCP
+- [ ] Robot domain (actions, behaviour, world model, safety)
+- [ ] Protocol / firmware interface
+- [ ] Deployment / configuration
+- [ ] Documentation
+
+## Alternatives considered
