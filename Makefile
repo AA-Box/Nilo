@@ -1,4 +1,4 @@
-.PHONY: help test test-full lint typecheck run compose-validate docker-build smoke
+.PHONY: help test lint typecheck check-docs run compose-validate docker-build smoke
 
 SERVER := main/kivo-server
 PY ?= python
@@ -7,6 +7,7 @@ help:
 	@echo "make test             - pytest in $(SERVER) (works with requirements-dev.txt alone)"
 	@echo "make lint             - ruff check"
 	@echo "make typecheck        - mypy on $(SERVER)/robot"
+	@echo "make check-docs       - validate docs links, paths, env vars and branding"
 	@echo "make run              - start kivo-server locally (needs requirements.txt)"
 	@echo "make compose-validate - docker compose config"
 	@echo "make docker-build     - build base + server images locally"
@@ -20,6 +21,9 @@ lint:
 
 typecheck:
 	cd $(SERVER) && mypy
+
+check-docs:
+	$(PY) scripts/check_docs.py
 
 run:
 	cd $(SERVER) && $(PY) app.py

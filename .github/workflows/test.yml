@@ -28,6 +28,9 @@ jobs:
         run: ruff check .
       - name: Mypy (robot/)
         run: mypy
+      - name: Documentation and branding check
+        working-directory: .
+        run: python scripts/check_docs.py
 
   test:
     name: Python 3.12, full dependencies

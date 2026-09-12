@@ -18,7 +18,7 @@ commit `ed27727` on `develop`.
 | log version `0.9.6` (upstream) | `robot.__version__` = `0.1.0` | `config/logger.py` |
 | `Dockerfile-server-base` base `python:3.10-slim`, Aliyun pip mirror, `zh_CN` locale | `python:3.12-slim`, default index, `C.UTF-8` | |
 | CI jobs `Lint (xiaozhi-server)`, `Python (xiaozhi-server)`, `Java (manager-api)`, `Vue (manager-web)` | `Lint and type-check`, `Python 3.12, full dependencies`, `Python 3.12, dev dependencies only`, `Docker Compose validates` | |
-| default LLM persona (小智, Taiwanese girl) | Kivo robot persona, English | `config.yaml` `prompt:` and `agent-base-prompt.txt` |
+| default LLM persona (`小智`, Taiwanese girl) | Kivo robot persona, English | `config.yaml` `prompt:` and `agent-base-prompt.txt` |
 
 ## Deleted
 
