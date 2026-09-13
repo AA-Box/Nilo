@@ -16,6 +16,7 @@ import numpy as np
 
 from plugins.manager import PluginManager
 from plugins import scan_plugins, register_plugins_to_conn
+from robot.session import attach_connection as robot_attach, detach_connection as robot_detach
 from core.utils.util import (
     extract_json_from_string,
     check_vad_update,
@@ -266,6 +267,10 @@ class ConnectionHandler:
             # Register plugins with this connection's plugin_manager
             register_plugins_to_conn(self)
 
+            # Register this device with the robot subsystem (docs/robot-architecture.md).
+            # Never raises: a robot failure must not break a voice session.
+            await robot_attach(self)
+
             # Check whether the connection came via MQTT
             request_path = ws.request.path
             self.conn_from_mqtt_gateway = request_path.endswith("?from=mqtt_gateway")
@@ -307,6 +312,7 @@ class ConnectionHandler:
             self.logger.bind(tag=TAG).error(f"Connection error: {str(e)}-{stack_trace}")
             return
         finally:
+            await robot_detach(self)
             try:
                 await self._save_and_close(ws)
             except Exception as final_error:

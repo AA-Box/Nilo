@@ -12,22 +12,24 @@ label in front of it:
 | Layer | Status | Where it is |
 |---|---|---|
 | Device Protocol | **Implemented** | `main/nilo-server/robot/protocol/` — route registry for the `nilo` protocol, plus the inherited session server in `core/` |
+| Robot domain (identity, capabilities, registry, events) | **Implemented** | `robot/state/`, `robot/events/`, `robot/devices/`, `robot/runtime.py`, `robot/session.py` — see [robot-domain.md](robot-domain.md) |
 | Perception / Audio | **Implemented** (as a voice pipeline, not yet as robot perception) | `core/providers/vad/`, `core/providers/asr/`, `core/handle/receiveAudioHandle.py` |
 | Agent | **Implemented** (as a chat agent, not yet as an embodied one) | `core/providers/llm/`, `core/providers/tools/`, `core/connection.py` |
 | Perception / Vision | **Experimental** | `core/api/vision_handler.py`, `core/providers/vllm/` — one-shot image explanation, no tracking, no coordinates |
-| Perception / Sensors | **Planned** | nothing in the tree |
-| World Model | **Planned** | nothing in the tree |
+| Perception / Sensors | **Planned** | `robot/state/models.py` types the sensor state; nothing produces it yet |
+| World Model | **Partial** | `robot/state/` — per-robot state with an age on every entry and a store interface; no obstacle map, no tracked entities |
 | Memory (robot-scoped) | **Planned** | conversation memory exists (`core/providers/memory/`); spatial, episodic and person memory do not |
 | Behavior Engine | **Planned** | nothing in the tree |
 | Action Executor | **Planned** | nothing in the tree |
 | Safety | **Planned** | nothing in the tree |
 
-Concretely: `main/nilo-server/robot/` contains exactly one package today,
-`robot/protocol/`, and one test module, `tests/robot/test_protocol.py`. There is no actions
-package, no behaviour engine, no world model, no simulator and no safety policy. Nothing
-here is running code unless it is marked **Implemented**. Planned module paths below are
-written **without backticks** on purpose: `scripts/check_docs.py` fails the build when a
-backticked repository path does not exist, and these do not exist yet.
+Concretely: `main/nilo-server/robot/` holds the protocol registry, the robot domain layer
+(`robot/state/`, `robot/events/`, `robot/devices/`) and the two modules that wire it into a
+session (`robot/runtime.py`, `robot/session.py`). There is no actions package, no behaviour
+engine, no personality, no simulator and no safety policy. Nothing here is running code
+unless it is marked **Implemented**. Planned module paths below are written **without
+backticks** on purpose: `scripts/check_docs.py` fails the build when a backticked repository
+path does not exist, and these do not exist yet.
 
 Phases and acceptance criteria live in [robot-roadmap.md](robot-roadmap.md); the safety
 policy is [safety.md](safety.md); the wire format is [protocol.md](protocol.md) and the
@@ -265,7 +267,9 @@ genuinely unreachable. `nilo.py` also carries `RESERVED_MESSAGE_TYPES`, the JSON
 already in use on the wire, so a new Nilo message type cannot silently collide.
 
 Robot work adds typed models for robot messages, a version field, explicit acks, and a device
-registry that outlives a single connection (R1). Session-level pieces go in robot/devices.
+registry that outlives a single connection (R1). The registry half is **done** —
+`robot/devices/registry.py`, attached through `robot/session.py`
+([robot-domain.md](robot-domain.md)); the typed robot message type is not.
 
 ## 3. The rule: the model requests, the robot executes
 
@@ -428,7 +432,7 @@ them wrapped so that a robot failure cannot break a voice session.
 
 | File | Change | Why |
 |---|---|---|
-| `core/connection.py` | +2: attach after the header parse in `handle_connection`, detach in its `finally` | Teardown there is guaranteed and deterministic; nothing else is. Fixes R1 |
+| `core/connection.py` | **Done**, +3: an import, `await robot_attach(self)` after the header parse in `handle_connection`, `await robot_detach(self)` in its `finally`. Both helpers swallow their own failures | Teardown there is guaranteed and deterministic; nothing else is. Fixes R1 |
 | `app.py` | +3: create the robot control-plane task, add a done-callback that escalates into the safety layer, cancel it in the existing `finally` | The server already has a clean lifecycle (`wait_for_exit`, task cancellation); the robot plane joins it rather than hanging off import-time side effects |
 | `core/providers/tools/device_mcp/mcp_client.py` | 1 changed line: start `next_id` above the handshake ids | Fixes R10 |
 | `core/providers/tools/device_mcp/mcp_handler.py` | +4: dispatch inbound `notifications/*` to a robot hook | Purely additive — the `elif "method" in payload` branch currently logs and drops. The only way cliff, touch and pickup events arrive as events instead of polls |
@@ -633,9 +637,11 @@ roadmap item ([robot-roadmap.md](robot-roadmap.md), Phase 0). See
 
 Stated so that nothing here is an undocumented assumption.
 
-1. **Almost none of this exists.** `main/nilo-server/robot/` contains `robot/protocol/` and
-   nothing else. The four seams in §4 were each verified against the current source, but no
-   code uses them yet.
+1. **Most of this does not exist yet.** `main/nilo-server/robot/` contains the protocol
+   registry and the robot domain layer described in [robot-domain.md](robot-domain.md):
+   models, state store, event bus, robot registry, MCP capability discovery, and the session
+   seam. Seam ① (robot message type), seam ③ (LLM-facing tools) and seam ④ (the bridge
+   plugin) were verified against the current source but no code uses them yet.
 2. **Robot firmware speaks the device MCP tool protocol.** The whole actuation path
    (seam ②) assumes the device registers its robot capabilities as MCP tools. If it does
    not, the fallback is a robot-owned WebSocket on its own port — not a new message type on
@@ -673,6 +679,7 @@ Stated so that nothing here is an undocumented assumption.
 
 ## Related pages
 
+[robot-domain.md](robot-domain.md) — the domain layer that is implemented ·
 [safety.md](safety.md) — the safety policy and what actuation authorisation requires ·
 [protocol.md](protocol.md) — the device wire protocol and the route registry ·
 [mcp.md](mcp.md) — the tool channel robot commands ride on ·

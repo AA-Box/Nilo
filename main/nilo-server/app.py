@@ -26,6 +26,7 @@ from core.utils.gc_manager import get_gc_manager
 from core.utils.util import check_ffmpeg_installed, get_local_ip, validate_mcp_endpoint
 from core.websocket_server import WebSocketServer
 from robot import __version__
+from robot.logging import install as install_robot_logging
 from robot.protocol import registry_from_config
 
 TAG = __name__
@@ -71,6 +72,9 @@ async def main():
     check_ffmpeg_installed()
     config = await load_config()
     config["server"]["auth_key"] = resolve_auth_key(config)
+
+    # Robot code logs through stdlib logging; route it into the server's loguru sinks.
+    install_robot_logging(config["log"].get("log_level", "INFO"))
 
     logger.bind(tag=TAG).info("nilo-server {} starting", __version__)
 
