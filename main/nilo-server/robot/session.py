@@ -4,11 +4,12 @@ This is the only robot module that knows about ``core.connection.ConnectionHandl
 and it imports ``core/`` **lazily**, inside functions, so ``import robot`` still works in
 a process with no config file and no loguru (docs/robot-architecture.md Sect. 7, R12).
 
-Two entry points, both of which swallow their own failures: a robot problem must never
+Three entry points, all of which swallow their own failures: a robot problem must never
 break a voice session.
 
-    attach_connection(conn)   # after the headers are parsed
-    detach_connection(conn)   # in handle_connection's finally
+    attach_connection(conn)       # after the headers are parsed
+    detach_connection(conn)       # in handle_connection's finally
+    handle_notification(conn, p)  # from the inherited MCP handler, for notifications/*
 
 Capability discovery reuses the inherited device-MCP client rather than opening a second
 handshake on the same channel: ``core`` already sends ``initialize``, follows
@@ -36,6 +37,8 @@ from robot.devices.mcp import (
 )
 from robot.runtime import RobotRuntime, get_runtime
 from robot.state.models import DeviceInfo, DisconnectReason, RobotCapabilities
+from robot.telemetry import ingest as ingest_notification
+from robot.telemetry import is_telemetry
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +159,33 @@ async def attach_connection(conn: Any, runtime: RobotRuntime | None = None) -> R
     except Exception as exc:
         logger.warning("robot attach failed for this session: %s", exc)
         return None
+
+
+async def handle_notification(conn: Any, payload: Mapping[str, Any], runtime: RobotRuntime | None = None) -> bool:
+    """Apply a device MCP notification to this session's robot. Returns whether it was ours.
+
+    Called from the inherited device-MCP handler for every payload that carries a
+    ``method`` — the branch that otherwise logs the method name and drops the frame. Only
+    the methods in :data:`robot.telemetry.TELEMETRY_METHODS` are claimed; anything else
+    returns ``False`` and the inherited logging still happens.
+
+    Never raises, so the call site in ``core/`` needs no ``try``: an unregistered session,
+    a malformed payload and a closed runtime are all ``False``, not exceptions.
+    """
+    try:
+        method = payload.get("method")
+        if not is_telemetry(method):
+            return False
+        session = getattr(conn, ROBOT_ATTR, None)
+        if not isinstance(session, RobotSession):
+            return False
+        params = payload.get("params")
+        active = runtime or get_runtime()
+        patch = params if isinstance(params, Mapping) else None
+        return await ingest_notification(active, session.robot_id, str(method), patch)
+    except Exception as exc:
+        logger.warning("robot notification handling failed: %s", exc)
+        return False
 
 
 async def detach_connection(

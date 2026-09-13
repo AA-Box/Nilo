@@ -95,10 +95,16 @@ implementation), `robot/events/` (typed events and a bounded drop-oldest async b
 `tests/robot/` suite that covers them — including the subprocess test that proves `import
 robot` needs no config file and pulls in no `core` module.
 
-**Still open:** a robot config file and schema (**robot/config.py**), typed robot protocol
-messages with a version field and acks, and the simulator. The fake device in
-`tests/robot/conftest.py` covers the MCP half of what the simulator is for, but it does not
-speak the WebSocket session protocol; `scripts/smoke_check.py` does that for the handshake.
+The **simulator is delivered** as well: `robot/simulator/` is a client that speaks the whole
+device protocol — handshake, device MCP with paged `tools/list`, 15 published hardware
+capabilities, motion that takes time, a configurable room with walls, obstacles, cliffs,
+people and a dock, synthetic or fixture camera frames, telemetry notifications, failure
+injection and a scenario runner on an accelerated or hand-driven clock. Its backend half,
+`robot/telemetry.py`, turns `notifications/*` into world state and typed events. See
+[robot-simulator.md](robot-simulator.md).
+
+**Still open:** a robot config file and schema (**robot/config.py**), and typed robot protocol
+messages with a version field and acks.
 
 **Key constraints** (robot-architecture §4.1, §7):
 
@@ -130,9 +136,10 @@ speak the WebSocket session protocol; `scripts/smoke_check.py` does that for the
 * `import robot` succeeds in a venv with **no** `data/.config.yaml`, no `NILO_CONFIG`, and
   no loguru configured. Asserted by a test that runs in a subprocess with a clean `cwd`.
 * `mypy` passes at the strict `robot.*` settings, zero `# type: ignore`.
-* The simulator connects to a running `app.py`, completes the session handshake against
-  the `nilo` route, answers `initialize` and `tools/list`, and appears in the server log as
-  a device with tools — verified by an integration test, not by hand.
+* **Done.** The simulator connects to a running `app.py`, completes the session handshake
+  against the `nilo` route, answers `initialize` and `tools/list`, and appears in the server
+  log as a device with tools — verified by `tests/integration/test_simulator_e2e.py`, not by
+  hand.
 * A protocol round-trip test: every message model serializes, deserializes, and rejects a
   wrong version with a typed error rather than an exception trace.
 * An event-bus test proves drop-oldest under a producer faster than its consumer, and that
@@ -157,6 +164,11 @@ seam, which swallows its own failures instead of wrapping every call site). The
 `core/connection.py` budget is spent: one import plus an `await` at each end of
 `handle_connection`. Registration, reconnect, supersede and teardown are covered by
 `tests/robot/test_registry.py` and `tests/robot/test_session.py`.
+
+Telemetry ingestion landed with the simulator: `robot/telemetry.py` plus
+`robot/session.py:handle_notification`, dispatched from the three-line hook in
+`core/providers/tools/device_mcp/mcp_handler.py` that §4.2 budgeted, so device
+`notifications/*` become world state and events instead of a log line.
 
 **Still open:** the bridge plugin under **plugins/robot_bridge/** (nothing is registered with
 the LLM yet, which is Phase 4), the weak-reference behaviour of the registry (state is held by
@@ -186,13 +198,15 @@ runs a full voice turn with the robot subsystem loaded.
 
 ### Acceptance criteria
 
-* Connecting two simulated robots yields exactly two registry entries with distinct device
-  ids; disconnecting one leaves exactly one; disconnecting the same session twice is a
-  no-op.
-* A test kills a simulated device without a clean close (drop the TCP connection) and the
-  registry entry is gone within a bounded time.
-* `git diff --stat` against the integration branch shows **at most 2 changed lines** in
-  `core/`.
+* **Done.** Connecting two simulated robots yields exactly two registry entries with
+  distinct device ids; disconnecting one leaves exactly one; disconnecting the same session
+  twice is a no-op.
+* **Done.** A test kills a simulated device without a clean close (drop the TCP connection)
+  and the registry entry is gone within a bounded time.
+* `git diff --stat` against the integration branch shows **at most 6 added lines** in
+  `core/`, in two files: 3 in `core/connection.py` (an import plus attach and detach) and 3 in
+  `core/providers/tools/device_mcp/mcp_handler.py` (the telemetry hook, which §4.2 budgeted at
+  4). The whole budget is about 10 lines across 4 files.
 * The bridge's self-assertion fails the server start (loudly, with a non-zero exit or a
   startup error) when a robot module is deliberately broken. Tested.
 * A normal, non-robot client still completes a full voice turn with the bridge loaded — the

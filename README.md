@@ -34,10 +34,16 @@ than a smart speaker. The direction is described in [docs/robot-architecture.md]
   ([docs/robot-domain.md](docs/robot-domain.md))
 * Test suite, lint (Ruff), strict typing for `robot/` (mypy), Docker image and Compose file
 
+* Robot simulator (`main/nilo-server/robot/simulator/`): a complete simulated robot that connects over the real
+  WebSocket route, publishes 15 hardware capabilities as device MCP tools, moves over time, senses a configurable
+  room, renders camera frames, reports telemetry as MCP notifications, injects failures and plays scenarios
+  ([docs/robot-simulator.md](docs/robot-simulator.md))
+* Device telemetry ingestion (`main/nilo-server/robot/telemetry.py`): `notifications/*` frames become world state
+  and typed events instead of a log line
+
 **In development:**
 
 * Semantic action vocabulary (`move`, `turn`, `look_at`, `follow`, `play_animation`, `stop`) and the action executor
-* Robot simulator (Python client that speaks the device protocol)
 
 **Planned:** behaviour engine, personality and emotion model, world model, on-device vision
 pipeline, robot memory, management API, physical robot firmware. See
@@ -51,7 +57,7 @@ robot / device ──WebSocket + Opus──▶ nilo-server
                                       │    session handler · VAD → ASR → LLM → TTS · tool system · MCP · OTA · vision
                                       └─ Nilo robotics layers (robot/)
                                            protocol registry ✓ · robot registry ✓ · state ✓ · events ✓ · capabilities ✓
-                                           actions · safety · behaviour · world map · memory
+                                           telemetry ✓ · simulator ✓ · actions · safety · behaviour · world map · memory
 ```
 
 The inherited infrastructure is a stable, well-tested voice pipeline; Nilo adds robotics on top
@@ -165,7 +171,7 @@ as little as possible. Layout, conventions and where things go: [docs/developmen
 
 ## Testing
 
-`pytest -q` in `main/nilo-server` (232 tests with the full requirements installed);
+`pytest -q` in `main/nilo-server` (the robot, simulator and end-to-end suites included);
 `make test`, `make lint`, `make typecheck` from the repository root; `scripts/smoke_check.py`
 against a running server. CI runs lint + mypy, the suite on Python 3.12 with full and with
 dev-only dependencies, and validates the Compose file. Details: [docs/testing.md](docs/testing.md).
@@ -182,8 +188,8 @@ and 8003 (HTTP) and takes `NILO_*` variables. Deployment options: [docs/deployme
 
 ## Roadmap
 
-Protocol registry and migration (done) → robot skeleton, event bus, simulator → device registry
-and session adapter → action system and safety policy → semantic action vocabulary → vision and
+Protocol registry and migration (done) → robot skeleton, event bus, simulator (done) → device registry
+and session adapter (done) → action system and safety policy → semantic action vocabulary → vision and
 world model → behaviour engine and personality → management API, memory, multi-robot → hardware
 bring-up. Acceptance criteria per phase: [docs/robot-roadmap.md](docs/robot-roadmap.md).
 
@@ -191,7 +197,8 @@ bring-up. Acceptance criteria per phase: [docs/robot-roadmap.md](docs/robot-road
 
 Start at [docs/getting-started.md](docs/getting-started.md). The full tree: architecture,
 configuration, development, deployment, protocol, MCP, audio, providers, robot architecture,
-safety, testing, upstream provenance, branding, migration — all under [docs/](docs/).
+robot simulator, safety, testing, upstream provenance, branding, migration — all under
+[docs/](docs/).
 
 ## Origins and attribution
 

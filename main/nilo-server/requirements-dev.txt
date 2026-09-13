@@ -11,6 +11,8 @@ pytest-asyncio==1.4.0
 freezegun==1.5.5
 ruff==0.16.7
 mypy==1.19.1
+# Stubs for the packages robot/ imports; mypy is strict there.
+types-PyYAML==6.0.12.20260906
 
 # Minimal runtime slice the current tests import.
 PyYAML==6.0.3

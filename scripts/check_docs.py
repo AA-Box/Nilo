@@ -46,7 +46,6 @@ PLANNED_PATHS = {
     "robot/memory",
     "robot/personality",
     "robot/safety",
-    "robot/simulator",
     "robot/vision",
     "robot/tests/fixtures",
 }

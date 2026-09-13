@@ -428,14 +428,16 @@ because `ConnectionHandler` sits in many reference cycles and entries survive di
 until a generational collection.
 
 So the cost is paid explicitly: **about 10 lines across 4 inherited files**, every one of
-them wrapped so that a robot failure cannot break a voice session.
+them wrapped so that a robot failure cannot break a voice session. Six are spent: three in
+`core/connection.py` and three in `core/providers/tools/device_mcp/mcp_handler.py`, which was
+budgeted at four.
 
 | File | Change | Why |
 |---|---|---|
 | `core/connection.py` | **Done**, +3: an import, `await robot_attach(self)` after the header parse in `handle_connection`, `await robot_detach(self)` in its `finally`. Both helpers swallow their own failures | Teardown there is guaranteed and deterministic; nothing else is. Fixes R1 |
 | `app.py` | +3: create the robot control-plane task, add a done-callback that escalates into the safety layer, cancel it in the existing `finally` | The server already has a clean lifecycle (`wait_for_exit`, task cancellation); the robot plane joins it rather than hanging off import-time side effects |
 | `core/providers/tools/device_mcp/mcp_client.py` | 1 changed line: start `next_id` above the handshake ids | Fixes R10 |
-| `core/providers/tools/device_mcp/mcp_handler.py` | +4: dispatch inbound `notifications/*` to a robot hook | Purely additive — the `elif "method" in payload` branch currently logs and drops. The only way cliff, touch and pickup events arrive as events instead of polls |
+| `core/providers/tools/device_mcp/mcp_handler.py` | **Done**, +3: dispatch inbound `notifications/*` to `robot/session.py:handle_notification`, which claims the telemetry methods and never raises | Purely additive — the `elif "method" in payload` branch logged and dropped. The only way cliff, touch and pickup events arrive as events instead of polls. See [robot-simulator.md](robot-simulator.md) |
 
 Everything else — tools, message types, providers, prompts, world state, speech — is
 zero-edit. One item from the original budget is already **done**: the unauthenticated

@@ -221,6 +221,9 @@ async def handle_mcp_message(
     # Handle method calls (requests from the client)
     elif "method" in payload:
         method = payload["method"]
+        from robot.session import handle_notification as robot_notification  # Nilo robot seam
+        if await robot_notification(conn, payload):  # claims notifications/*; never raises
+            return
         logger.bind(tag=TAG).info(f"Received MCP client request: {method}")
 
     elif "error" in payload:
