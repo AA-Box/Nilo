@@ -1,6 +1,6 @@
 # Getting started
 
-This page takes you from a clean machine to a running Kivo Server that a device can connect to,
+This page takes you from a clean machine to a running Nilo Server that a device can connect to,
 and lists the errors you are most likely to hit on the way.
 
 What you get at the end: **a voice session server**. A device opens a WebSocket, streams Opus
@@ -49,13 +49,13 @@ On macOS the bundled `libs/mac/<arch>/libopus.dylib` is used automatically; inst
 ## 2. Install
 
 ```bash
-git clone https://github.com/AA-Box/Cozmo.git kivo
-cd kivo/main/kivo-server
+git clone https://github.com/AA-Box/Cozmo.git nilo
+cd nilo/main/nilo-server
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-`main/kivo-server/requirements.txt` pins the runtime: torch/torchaudio 2.2.2 (for FunASR),
+`main/nilo-server/requirements.txt` pins the runtime: torch/torchaudio 2.2.2 (for FunASR),
 `websockets==14.2`, the provider SDKs, `mcp`, `aiohttp`, `loguru`. One entry is conditional:
 
 ```
@@ -71,7 +71,7 @@ For tests, lint and type checking, install the dev file as well:
 pip install -r requirements-dev.txt
 ```
 
-`main/kivo-server/requirements-dev.txt` holds pytest, ruff and mypy plus the small runtime slice
+`main/nilo-server/requirements-dev.txt` holds pytest, ruff and mypy plus the small runtime slice
 the test suite actually imports (PyYAML, httpx, cnlunar, pydantic, loguru), so `pytest -q` runs
 without torch or FunASR installed — tests that need the full runtime skip themselves. See
 [testing.md](testing.md) and [development.md](development.md).
@@ -89,7 +89,7 @@ files but **not** the weights — `models/SenseVoiceSmall/model.pt` is in `.giti
 the file list are positional, `--local-dir` writes straight into the directory):
 
 ```bash
-# from main/kivo-server
+# from main/nilo-server
 modelscope download iic/SenseVoiceSmall model.pt --local-dir models/SenseVoiceSmall
 ```
 
@@ -104,7 +104,7 @@ ASR:
     api_key: sk-your-key
 ```
 
-`OpenaiASR` and `GroqASR` are already defined in `main/kivo-server/config.yaml` with their
+`OpenaiASR` and `GroqASR` are already defined in `main/nilo-server/config.yaml` with their
 `base_url` and `model_name`, so overriding only `api_key` is enough. The full provider list is in
 [providers.md](providers.md).
 
@@ -119,16 +119,16 @@ Configuration is three layers, later wins (`config/config_loader.py`):
 
 ```mermaid
 flowchart LR
-    A["main/kivo-server/config.yaml<br/>shipped defaults, fully commented<br/>(do not edit)"]
-    B["user file<br/>data/.config.yaml<br/>or $KIVO_CONFIG"]
-    C["KIVO_* environment variables"]
+    A["main/nilo-server/config.yaml<br/>shipped defaults, fully commented<br/>(do not edit)"]
+    B["user file<br/>data/.config.yaml<br/>or $NILO_CONFIG"]
+    C["NILO_* environment variables"]
     D["effective config"]
     A -->|"merge_configs(), recursive"| D
     B -->|"overrides per key"| D
     C -->|"apply_env_overrides()"| D
 ```
 
-* `config/config_loader.py:custom_config_path` resolves the user file as `$KIVO_CONFIG`, or
+* `config/config_loader.py:custom_config_path` resolves the user file as `$NILO_CONFIG`, or
   `data/.config.yaml` relative to the server directory when that variable is unset.
 * `merge_configs()` merges recursively, so your file only needs the keys that differ.
 * **The user file must exist**, even if empty — see the first troubleshooting entry.
@@ -136,13 +136,13 @@ flowchart LR
 
 | Variable | Config key it sets | Default |
 |---|---|---|
-| `KIVO_CONFIG` | *(path of the user config file itself)* | `data/.config.yaml` |
-| `KIVO_SERVER_HOST` | `server.ip` | `0.0.0.0` |
-| `KIVO_SERVER_PORT` | `server.port` (WebSocket) | `8000` |
-| `KIVO_HTTP_PORT` | `server.http_port` (HTTP/OTA) | `8003` |
-| `KIVO_LOG_LEVEL` | `log.log_level` | `INFO` |
+| `NILO_CONFIG` | *(path of the user config file itself)* | `data/.config.yaml` |
+| `NILO_SERVER_HOST` | `server.ip` | `0.0.0.0` |
+| `NILO_SERVER_PORT` | `server.port` (WebSocket) | `8000` |
+| `NILO_HTTP_PORT` | `server.http_port` (HTTP/OTA) | `8003` |
+| `NILO_LOG_LEVEL` | `log.log_level` | `INFO` |
 
-These five are the whole set: the four config overrides in `ENV_OVERRIDES`, plus `KIVO_CONFIG`, which
+These five are the whole set: the four config overrides in `ENV_OVERRIDES`, plus `NILO_CONFIG`, which
 `custom_config_path()` reads to locate the user file itself (both in `config/config_loader.py`).
 Everything else is configured in YAML; the full reference is [configuration.md](configuration.md).
 
@@ -152,7 +152,7 @@ The default `selected_module` picks `SileroVAD`, `FunASR`, `ChatGLMLLM`, `EdgeTT
 `function_call`. VAD and Edge TTS need no credentials, so the smallest useful override is an LLM:
 
 ```bash
-# from main/kivo-server
+# from main/nilo-server
 mkdir -p data && cat > data/.config.yaml <<'YAML'
 selected_module:
   LLM: MyLLM
@@ -172,15 +172,12 @@ YAML
 * The name under `LLM:` is yours; `selected_module.LLM` must reference the same name, and the API
   key must be set on **that** entry — the key on any other provider block is ignored.
 
-Two options worth knowing about immediately:
+One option worth knowing about immediately:
 
 ```yaml
 TTS:
   EdgeTTS:
     voice: en-US-AriaNeural   # the shipped default voice is a Chinese one
-protocols:
-  legacy_xiaozhi:
-    enabled: false            # turn off the compatibility routes once no device needs them
 ```
 
 ---
@@ -188,7 +185,7 @@ protocols:
 ## 5. Start the server
 
 ```bash
-# from main/kivo-server, with the virtualenv active
+# from main/nilo-server, with the virtualenv active
 python app.py
 ```
 
@@ -198,16 +195,14 @@ like this — the last block is what you need:
 ```
 260912 19:31:29[0.1.0_00000000000000][config.opus_loader]-INFO-Detected platform/architecture: darwin arm64
 260912 19:31:29[0.1.0_00000000000000][config.opus_loader]-INFO-Successfully loaded Opus library: .../libs/mac/arm64/libopus.dylib
-260912 19:31:29[0.1.0_00000000000000][__main__]-INFO-kivo-server 0.1.0 starting
+260912 19:31:29[0.1.0_00000000000000][__main__]-INFO-nilo-server 0.1.0 starting
 260912 19:31:29[0.1.0_00000000000000][core.utils.modules_initialize]-INFO-Initialized component: llm MyLLM
 260912 19:31:29[0.1.0_00000000000000][core.utils.modules_initialize]-INFO-Initialized component: intent function_call
 260912 19:31:29[0.1.0_00000000000000][core.utils.modules_initialize]-INFO-Initialized component: memory nomem
 260912 19:31:29[0.1.0_00000000000000][core.utils.modules_initialize]-INFO-Initialized component: vad SileroVAD
 260912 19:31:32[0.1.0_00000000000000][core.utils.modules_initialize]-INFO-Initialized component: asr FunASR
-260912 19:31:32[0.1.0_00000000000000][__main__]-INFO-OTA endpoint [kivo]:	http://192.168.1.80:8003/kivo/ota/
-260912 19:31:32[0.1.0_00000000000000][__main__]-INFO-WebSocket endpoint [kivo]:	ws://192.168.1.80:8000/kivo/v1/
-260912 19:31:32[0.1.0_00000000000000][__main__]-INFO-OTA endpoint [legacy_xiaozhi]:	http://192.168.1.80:8003/xiaozhi/ota/
-260912 19:31:32[0.1.0_00000000000000][__main__]-INFO-WebSocket endpoint [legacy_xiaozhi]:	ws://192.168.1.80:8000/xiaozhi/v1/
+260912 19:31:32[0.1.0_00000000000000][__main__]-INFO-OTA endpoint [nilo]:	http://192.168.1.80:8003/nilo/ota/
+260912 19:31:32[0.1.0_00000000000000][__main__]-INFO-WebSocket endpoint [nilo]:	ws://192.168.1.80:8000/nilo/v1/
 260912 19:31:32[0.1.0_00000000000000][__main__]-INFO-Vision endpoint:	http://192.168.1.80:8003/mcp/vision/explain
 260912 19:31:32[0.1.0_00000000000000][__main__]-INFO-The WebSocket endpoints above are for devices; open the OTA endpoint in a browser to check the server.
 ```
@@ -215,9 +210,9 @@ like this — the last block is what you need:
 Reading that:
 
 * One pair of endpoints is printed **per enabled protocol** (`app.py` iterates
-  `registry_from_config(config).enabled()`). `kivo` is the native protocol
-  (`robot/protocol/kivo.py`); `legacy_xiaozhi` serves the routes baked into existing
-  ESP32 firmware (`robot/protocol/legacy_xiaozhi.py`) and is enabled by default.
+  `registry_from_config(config).enabled()`). There is exactly one protocol — `nilo`
+  (`robot/protocol/nilo.py`, `ALL_PROTOCOLS` in `robot/protocol/__init__.py`) — so one pair is
+  all you should ever see.
 * The host in those URLs is the machine's LAN address from `get_local_ip()`. It is informational;
   the server binds `server.ip` (`0.0.0.0` by default) on ports 8000 and 8003.
 * The OTA lines are only printed in standalone mode — with a `manager-api` configured
@@ -225,7 +220,7 @@ Reading that:
 * The log prefix is `<time>[<version>_<module-abbreviations>][<tag>]-<level>-<message>`
   (`config/logger.py`); logs also go to `tmp/server.log` with 10 MB rotation.
 
-Stop with Ctrl-C: `app.py` installs SIGINT/SIGTERM handlers and prints `kivo-server stopped.`
+Stop with Ctrl-C: `app.py` installs SIGINT/SIGTERM handlers and prints `nilo-server stopped.`
 
 ---
 
@@ -237,30 +232,32 @@ where to connect:
 ```mermaid
 sequenceDiagram
     participant D as Device / robot
-    participant H as kivo-server HTTP :8003
-    participant W as kivo-server WebSocket :8000
-    D->>H: POST /kivo/ota/ (device-id, client-id headers)
+    participant H as nilo-server HTTP :8003
+    participant W as nilo-server WebSocket :8000
+    D->>H: POST /nilo/ota/ (device-id, client-id headers)
     H-->>D: {"websocket": {"url": "...", "token": "..."}, "firmware": {...}, "server_time": {...}}
     D->>W: WebSocket connect to that url (device-id header)
     D->>W: {"type": "hello", ...}
     W-->>D: {"type": "hello", ...} then the audio session begins
 ```
 
-Point a new device at `http://<host>:8003/kivo/ota/`. Firmware from the Xiaozhi ESP32 family bakes
-`/xiaozhi/ota/` in at compile time and keeps working unchanged as long as the `legacy_xiaozhi`
-protocol is enabled. Both routes are served by the same handler (`core/api/ota_handler.py`).
+Point a new device at `http://<host>:8003/nilo/ota/`. That is the only OTA bootstrap route the
+server serves (`core/api/ota_handler.py`, registered once per enabled protocol by
+`core/http_server.py` next to the firmware download route `/nilo/ota/download/{filename}`), and
+`/nilo/v1/` is the only WebSocket path the handshake accepts. A device whose firmware bakes in some
+other path has to be reflashed against `/nilo/ota/`; no other route answers and nothing falls back.
 
 A `GET` on the same URL is a human health check — open it in a browser:
 
 ```
-$ curl http://127.0.0.1:8003/kivo/ota/
-OTA endpoint is running normally; websocket URL sent to devices: ws://192.168.1.80:8000/kivo/v1/
+$ curl http://127.0.0.1:8003/nilo/ota/
+OTA endpoint is running normally; websocket URL sent to devices: ws://192.168.1.80:8000/nilo/v1/
 
-$ curl -s -X POST http://127.0.0.1:8003/kivo/ota/ \
+$ curl -s -X POST http://127.0.0.1:8003/nilo/ota/ \
     -H 'device-id: 00:11:22:33:44:55' -H 'client-id: my-client' -d '{}'
 {"server_time":{"timestamp":1789234481373,"timezone_offset":480},
  "firmware":{"version":"0.0.0","url":""},
- "websocket":{"url":"ws://192.168.1.80:8000/kivo/v1/","token":""}}
+ "websocket":{"url":"ws://192.168.1.80:8000/nilo/v1/","token":""}}
 ```
 
 `device-id` and `client-id` headers are mandatory on `POST`; without them the handler answers
@@ -279,15 +276,19 @@ python scripts/smoke_check.py --host 127.0.0.1 --ws-port 8000 --http-port 8003
 ```
 
 ```
-[PASS] kivo            GET /kivo/ota/ -> 200; POST -> 200; ws /kivo/v1/ -> ok
-[PASS] legacy_xiaozhi  GET /xiaozhi/ota/ -> 200; POST -> 200; ws /xiaozhi/v1/ -> ok
-[info] unknown ws path -> ok (accepted unless protocols.strict is true)
+[PASS] nilo            GET /nilo/ota/ -> 200; POST -> 200; ws /nilo/v1/ -> ok
+[info] unknown ws path -> rejected (404) (rejected unless protocols.strict is false)
 ```
 
-It exits 0 when every enabled route answers and 1 otherwise. `make smoke` runs it with `HOST`,
-`WS_PORT` and `HTTP_PORT` environment overrides; `--expect-disabled <name>` inverts the
-expectation for a protocol you turned off. The wire format it speaks is documented in
-[protocol.md](protocol.md).
+Between those two lines it prints one `[PASS] retired …` line per route this server used to serve
+and no longer does (the `RETIRED` tuple in the script): the retired OTA route has to answer 404 and
+the retired WebSocket path has to be rejected at the handshake, which is how you confirm the removed
+routes really are gone.
+
+It exits 0 when every enabled route answers and every retired route is gone, 1 otherwise.
+`make smoke` runs it with `HOST`, `WS_PORT` and `HTTP_PORT` environment overrides;
+`--expect-disabled <name>` inverts the expectation for a protocol you turned off. The wire format
+it speaks is documented in [protocol.md](protocol.md).
 
 ---
 
@@ -295,20 +296,20 @@ expectation for a protocol you turned off. The wire format it speaks is document
 
 Two images: a base image with the system libraries and Python dependencies
 (`Dockerfile-server-base`), and a thin application image on top of it (`Dockerfile-server`).
-`main/kivo-server/docker-compose.yml` runs `ghcr.io/aa-box/kivo-server:latest`, so **that image
+`main/nilo-server/docker-compose.yml` runs `ghcr.io/aa-box/nilo-server:latest`, so **that image
 has to exist before Compose can start**: either pull it from the registry, or build both images
 locally first.
 
 ```bash
-# from the repository root - builds ghcr.io/aa-box/kivo-server:base then :latest
+# from the repository root - builds ghcr.io/aa-box/nilo-server:base then :latest
 make docker-build
 ```
 
-`Dockerfile-server` takes `ARG BASE_IMAGE=ghcr.io/aa-box/kivo-server:base`, so the base must be
+`Dockerfile-server` takes `ARG BASE_IMAGE=ghcr.io/aa-box/nilo-server:base`, so the base must be
 built (or published) before the application image; `make docker-build` does them in that order.
 
 ```bash
-cd main/kivo-server
+cd main/nilo-server
 mkdir -p data models
 docker compose up -d
 docker compose logs -f
@@ -319,8 +320,8 @@ What the Compose file sets up:
 | | |
 |---|---|
 | Ports | `8000:8000` (WebSocket), `8003:8003` (HTTP OTA + `/mcp/vision/explain`) |
-| Environment | `TZ`, `KIVO_SERVER_HOST`, `KIVO_SERVER_PORT`, `KIVO_HTTP_PORT`, `KIVO_LOG_LEVEL` |
-| Volumes | `./data` → `/opt/kivo-server/data` (your `.config.yaml` lives here), and `./models/SenseVoiceSmall/model.pt` → the same path in the container |
+| Environment | `TZ`, `NILO_SERVER_HOST`, `NILO_SERVER_PORT`, `NILO_HTTP_PORT`, `NILO_LOG_LEVEL` |
+| Volumes | `./data` → `/opt/nilo-server/data` (your `.config.yaml` lives here), and `./models/SenseVoiceSmall/model.pt` → the same path in the container |
 
 The model volume is a **file** bind mount: create or download `models/SenseVoiceSmall/model.pt` on
 the host first, or delete that volume line if you configured a cloud ASR. Validate the file
@@ -341,18 +342,18 @@ then the ports are bound.
 ### `FileNotFoundError: User config file not found`
 
 ```
-FileNotFoundError: User config file not found: /path/to/main/kivo-server/data/.config.yaml.
-Create it (an empty file is fine) or point KIVO_CONFIG at your config file.
+FileNotFoundError: User config file not found: /path/to/main/nilo-server/data/.config.yaml.
+Create it (an empty file is fine) or point NILO_CONFIG at your config file.
 See docs/getting-started.md.
 ```
 
 Raised by `config/settings.py:check_config_file`, which runs from `config/logger.py` before the
-first log line — so this traceback appears with no Kivo log output at all. Fix:
+first log line — so this traceback appears with no Nilo log output at all. Fix:
 
 ```bash
 mkdir -p data && touch data/.config.yaml     # an empty file is valid; defaults apply
 # or
-KIVO_CONFIG=/etc/kivo/config.yaml python app.py
+NILO_CONFIG=/etc/nilo/config.yaml python app.py
 ```
 
 The same function also raises a `ValueError` for a user config that sets both `manager-api`
@@ -369,9 +370,9 @@ Failed to load the Opus library. Put the Opus shared library for your platform u
   - Linux (x64): libs/linux/x64/libopus.so
 ```
 
-Raised at import time in `main/kivo-server/app.py` when `setup_opus()` returns `False`. On Linux
+Raised at import time in `main/nilo-server/app.py` when `setup_opus()` returns `False`. On Linux
 this almost always means the system package is missing — `sudo apt-get install -y libopus0` — or
-drop the `.so` into the path the message names. Run with `KIVO_LOG_LEVEL=DEBUG` to see every
+drop the `.so` into the path the message names. Run with `NILO_LOG_LEVEL=DEBUG` to see every
 search path `config/opus_loader.py` tried.
 
 ### `ValueError: ffmpeg is not working properly.`
@@ -409,7 +410,7 @@ the sockets are bound, so they are printed even when binding fails. A port clash
 The process does **not** exit. Free the port, or move the server:
 
 ```bash
-KIVO_SERVER_PORT=18000 KIVO_HTTP_PORT=18003 python app.py
+NILO_SERVER_PORT=18000 NILO_HTTP_PORT=18003 python app.py
 ```
 
 Then confirm with `python scripts/smoke_check.py --ws-port 18000 --http-port 18003`.
@@ -432,8 +433,10 @@ starts normally and only transcription is broken. If ASR returns nothing, verify
   (`core/websocket_server.py`).
 * `authentication failed` — `server.auth.enabled` is on and the token is missing or invalid. Get
   one from the OTA response, or add the device to `server.auth.allowed_devices`.
-* An unknown WebSocket path is accepted by default; set `protocols.strict: true` to reject
-  anything that is not an enabled protocol route.
+* `unknown protocol path`, HTTP 404 — the WebSocket path is not an enabled protocol route.
+  `protocols.strict` ships as `true`, so `/nilo/v1/` is the only path accepted and the server logs
+  `rejected WebSocket path ...` (`core/websocket_server.py:_http_response`). Set it to `false` to
+  restore the old permissive behaviour.
 
 ---
 

@@ -1,6 +1,6 @@
 # Audio pipeline
 
-How kivo-server turns microphone audio from a device into text, and text back into
+How nilo-server turns microphone audio from a device into text, and text back into
 audio the device plays. Everything on this page is **Implemented** — it runs in the
 current tree — unless a section says otherwise.
 
@@ -63,7 +63,7 @@ The gateway keys under `server:` in the config tree are not all backed by code. 
 |---|---|
 | `server.mqtt_gateway` | **Not an MQTT client.** When set, the OTA response returns an `mqtt` block (endpoint, client id, username, password) instead of the `websocket` block (`core/api/ota_handler.py`). The server itself never opens an MQTT connection. |
 | `server.mqtt_signature_key` | Used only to sign the MQTT password placed in that same OTA response (`core/api/ota_handler.py:OTAHandler.generate_password_signature`). |
-| `server.udp_gateway` | **Not implemented.** The key is declared in `config.yaml` and no Python module reads it; there is no UDP socket anywhere in `core/` or `robot/`. |
+| `server.udp_gateway` | **Not implemented.** The key is declared in `config.yaml` and no Python module reads it; nothing in `core/` or `robot/` opens a UDP audio path. |
 
 A connection is treated as gateway-framed when its request path ends with
 `?from=mqtt_gateway` (`core/connection.py`, sets `conn_from_mqtt_gateway`). For those
@@ -119,8 +119,8 @@ hello:
     frame_duration: 60
 ```
 
-The block used to be spelled `xiaozhi:`; that spelling still loads with a deprecation warning
-(`config/config_loader.py`, `DEPRECATED_KEYS = {"xiaozhi": "hello"}`).
+`hello:` is the only spelling the loader accepts — `config/config_loader.py` still has the
+alias machinery (`apply_deprecated_aliases`), but `DEPRECATED_KEYS` is now empty.
 
 ### Encoder settings
 
@@ -423,7 +423,7 @@ sequence in `send_tts_message`.
 ```mermaid
 sequenceDiagram
     participant D as Device
-    participant S as kivo-server
+    participant S as nilo-server
     D->>S: user speaks while server is speaking
     Note over S: VAD reports voice, client_is_speaking is true,<br/>listen mode is not manual
     S->>S: handleAbortMessage
@@ -494,12 +494,12 @@ Top-level keys in `config.yaml` that affect audio:
 | `enable_greeting` | `true` | Reply when a turn opens with a wake word |
 | `enable_stop_tts_notify` | `false` | Chime after the assistant finishes speaking |
 | `stop_tts_notify_voice` | `config/assets/tts_notify.mp3` | That chime |
-| `wakeup_words` | list | Phrases treated as a wake-up rather than speech; includes phrases emitted by wake-word models in existing firmware |
+| `wakeup_words` | list | Phrases treated as a wake-up rather than speech; `config.yaml` ships `hey nilo`, `hi nilo`, `hello nilo` |
 | `delete_audio` | `true` | Passed to both ASR and TTS providers as `delete_audio_file` (`core/utils/modules_initialize.py`); controls whether intermediate audio files are removed after use |
 | `VAD.SileroVAD.*` | see table above | VAD thresholds and model path |
 
-Environment variables cannot set audio parameters directly; only `KIVO_CONFIG`,
-`KIVO_SERVER_HOST`, `KIVO_SERVER_PORT`, `KIVO_HTTP_PORT` and `KIVO_LOG_LEVEL` exist. See
+Environment variables cannot set audio parameters directly; only `NILO_CONFIG`,
+`NILO_SERVER_HOST`, `NILO_SERVER_PORT`, `NILO_HTTP_PORT` and `NILO_LOG_LEVEL` exist. See
 [configuration.md](configuration.md).
 
 ## Runtime prerequisites

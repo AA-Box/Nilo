@@ -8,7 +8,7 @@ Checks, over README.md and docs/*.md (plus the component READMEs):
   * every relative link resolves to a file that exists
   * every backticked repository path exists, or is a path the roadmap has not built yet
     (PLANNED_PATHS below — a planned path that starts existing must be removed from that list)
-  * every KIVO_* environment variable mentioned is one the code actually reads
+  * every NILO_* environment variable mentioned is one the code actually reads
   * no Chinese *prose*; Chinese quoted as data inside `backticks` is allowed, because the
     pages have to name legacy config values and wake-word phrases
   * no legacy identifiers (xiaozhi-server, XIAOZHI_, ...) outside the pages that
@@ -26,12 +26,12 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SERVER = ROOT / "main/kivo-server"
+SERVER = ROOT / "main/nilo-server"
 
 # Pages whose subject is the inherited project: they may name it and describe removed paths.
 PROVENANCE_PAGES = {"migration.md", "upstream.md", "branding.md"}
 
-ENV_VARS = {"KIVO_CONFIG", "KIVO_SERVER_HOST", "KIVO_SERVER_PORT", "KIVO_HTTP_PORT", "KIVO_LOG_LEVEL"}
+ENV_VARS = {"NILO_CONFIG", "NILO_SERVER_HOST", "NILO_SERVER_PORT", "NILO_HTTP_PORT", "NILO_LOG_LEVEL"}
 
 # Paths the documentation names as *planned* (docs/robot-roadmap.md). They must not exist yet:
 # once one does, delete it here so the normal "this path exists" rule takes over.
@@ -53,44 +53,23 @@ PLANNED_PATHS = {
     "robot/tests/fixtures",
 }
 
-# Files allowed to contain "xiaozhi": the compatibility protocol, the deprecated config alias,
-# the upstream sync script, the licence, tests of the above, and the provenance docs.
+# Files allowed to contain "xiaozhi". The legacy protocol was removed, so the only legitimate
+# mentions left are: the licence, the upstream sync script, the provenance and migration docs,
+# and the regression tests that assert the retired routes stay retired.
 LEGACY_ALLOWED = {
     "LICENSE",
-    "README.md",
+    "README.md",  # the required attribution sentence names the upstream project
     "docs/branding.md",
     "docs/migration.md",
     "docs/upstream.md",
-    "docs/protocol.md",
-    "docs/robot-architecture.md",
-    "docs/configuration.md",
-    "docs/getting-started.md",
-    "docs/architecture.md",
-    "docs/deployment.md",
-    "docs/testing.md",
-    "docs/safety.md",
-    "docs/development.md",
-    "docs/mcp.md",
-    "docs/audio.md",
-    "docs/providers.md",
-    "docs/robot-roadmap.md",
-    ".github/ISSUE_TEMPLATE/bug_report.md",
-    ".github/PULL_REQUEST_TEMPLATE.md",
-    "main/kivo-server/.ruff.toml",
-    "main/kivo-server/docker-compose.yml",
-    "main/kivo-server/tests/test_compose.py",
     "scripts/check_docs.py",
     "scripts/smoke_check.py",
     "scripts/sync-upstream.sh",
-    "main/kivo-server/CLAUDE.md",
-    "main/kivo-server/config.yaml",
-    "main/kivo-server/config/config_loader.py",
-    "main/kivo-server/robot/protocol/__init__.py",
-    "main/kivo-server/robot/protocol/legacy_xiaozhi.py",
-    "main/kivo-server/tests/config/test_kivo_config.py",
-    "main/kivo-server/tests/core/test_http_routes.py",
-    "main/kivo-server/tests/core/test_ws_path_gate.py",
-    "main/kivo-server/tests/robot/test_protocol.py",
+    "main/nilo-server/tests/config/test_nilo_config.py",
+    "main/nilo-server/tests/test_compose.py",
+    "main/nilo-server/tests/core/test_http_routes.py",
+    "main/nilo-server/tests/core/test_ws_path_gate.py",
+    "main/nilo-server/tests/robot/test_protocol.py",
 }
 
 CJK = re.compile(r"[一-鿿]")
@@ -101,7 +80,7 @@ PATHISH = re.compile(
     r"|Dockerfile[A-Za-z0-9._-]*|Makefile|LICENSE|README\.md)`"
 )
 INLINE_CODE = re.compile(r"`[^`]*`")
-ENV = re.compile(r"\bKIVO_[A-Z_]+\b")
+ENV = re.compile(r"\bNILO_[A-Z_]+\b")
 LEGACY = re.compile(r"xiaozhi-server|XIAOZHI_|xiaozhi_|小智")
 
 

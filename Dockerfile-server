@@ -1,10 +1,10 @@
-# kivo-server production image: application code on top of the base image.
-#   docker build -f Dockerfile-server -t ghcr.io/aa-box/kivo-server:latest .
-ARG BASE_IMAGE=ghcr.io/aa-box/kivo-server:base
+# nilo-server production image: application code on top of the base image.
+#   docker build -f Dockerfile-server -t ghcr.io/aa-box/nilo-server:latest .
+ARG BASE_IMAGE=ghcr.io/aa-box/nilo-server:base
 FROM ${BASE_IMAGE}
 
-WORKDIR /opt/kivo-server
-COPY main/kivo-server .
+WORKDIR /opt/nilo-server
+COPY main/nilo-server .
 
 EXPOSE 8000 8003
 CMD ["python", "app.py"]

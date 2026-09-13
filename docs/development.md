@@ -1,13 +1,13 @@
 # Development
 
-How to set up, run, test and extend `kivo-server`. Deployment (Docker, Compose, images) is in
+How to set up, run, test and extend `nilo-server`. Deployment (Docker, Compose, images) is in
 [deployment.md](deployment.md); a first-run walkthrough is in
 [getting-started.md](getting-started.md).
 
 ## Repository layout
 
 ```
-Cozmo/                          repository root (the GitHub rename to Kivo is pending, see migration.md)
+Cozmo/                          repository root (the GitHub rename to Nilo is pending, see migration.md)
 ├── Makefile                    every command in this page has a target here
 ├── Dockerfile-server           runtime image (FROM the base image)
 ├── Dockerfile-server-base      base image: python:3.12-slim + system deps
@@ -22,29 +22,29 @@ Cozmo/                          repository root (the GitHub rename to Kivo is pe
 │   ├── workflows/              test.yml, docker-image.yml, build-base-image.yml
 │   ├── PULL_REQUEST_TEMPLATE.md
 │   ├── ISSUE_TEMPLATE/         bug_report, feature_request, documentation, config
-│   └── dependabot.yml          weekly pip updates for main/kivo-server, monthly Actions
-└── main/kivo-server/           the Python server
+│   └── dependabot.yml          weekly pip updates for main/nilo-server, monthly Actions
+└── main/nilo-server/           the Python server
 ```
 
-Inside `main/kivo-server/`:
+Inside `main/nilo-server/`:
 
 | Path | Owner | What it holds |
 |---|---|---|
-| `app.py` | Kivo | Entry point: loads config, starts the WebSocket server and the HTTP server as two asyncio tasks, logs the enabled routes |
-| `config/` | inherited, edited | `config_loader.py` (YAML layering, `KIVO_*` overrides, deprecated-key aliases), `settings.py`, `logger.py`, `opus_loader.py`, `placeholders.py`, `assets/` (prompt audio) |
+| `app.py` | Nilo | Entry point: loads config, starts the WebSocket server and the HTTP server as two asyncio tasks, logs the enabled routes |
+| `config/` | inherited, edited | `config_loader.py` (YAML layering, `NILO_*` overrides; `DEPRECATED_KEYS` is empty — there are no config aliases left), `settings.py`, `logger.py`, `opus_loader.py`, `placeholders.py`, `assets/` (prompt audio) |
 | `core/` | inherited | `connection.py`, `websocket_server.py`, `http_server.py`, `api/` (OTA, vision), `handle/` (text and audio message handling), `providers/` (ASR/TTS/LLM/VLLM/VAD/memory/intent/tools), `utils/` |
-| `plugins/` | inherited | Unified plugin system: `BasePlugin` interceptors and `@register_function` tools ([plugins/README.md](../main/kivo-server/plugins/README.md)) |
+| `plugins/` | inherited | Unified plugin system: `BasePlugin` interceptors and `@register_function` tools ([plugins/README.md](../main/nilo-server/plugins/README.md)) |
 | `plugins_func/` | inherited | Shipped tool functions (`get_time`, `get_weather`, `play_music`, …) plus back-compat re-exports of `plugins.register` |
-| `robot/` | Kivo | Kivo-owned package. Today: `robot/protocol/` (`ProtocolSpec`, `ProtocolRegistry`, the `kivo` and `legacy_xiaozhi` specs) and `__version__` |
-| `tests/` | Kivo | pytest suite; `conftest.py` sets `KIVO_CONFIG`; `fixtures/test_config.yaml` is an empty override |
+| `robot/` | Nilo | Nilo-owned package. Today: `robot/protocol/` — `base.py` (`ProtocolSpec`, `ProtocolRegistry`), `nilo.py` (the one `nilo` spec, `RESERVED_MESSAGE_TYPES`), `__init__.py` (`ALL_PROTOCOLS`, `registry_from_config`) — and `__version__` |
+| `tests/` | Nilo | pytest suite; `conftest.py` sets `NILO_CONFIG`; `fixtures/test_config.yaml` is an empty override |
 | `performance_tester/` | inherited | Standalone latency benchmarks for ASR, TTS, LLM and vision-LLM providers |
 | `models/` | vendored | Silero VAD source and SenseVoiceSmall configuration; weights are not tracked (`model.pt` is gitignored) |
 | `libs/` | vendored | Prebuilt Opus shared libraries (`win/x64`, `mac/x64`, `mac/arm64`) |
-| `config.yaml` | Kivo | Shipped defaults; user overrides go in `data/.config.yaml` (gitignored) |
+| `config.yaml` | Nilo | Shipped defaults; user overrides go in `data/.config.yaml` (gitignored) |
 | `.ruff.toml`, `mypy.ini`, `pyproject.toml` | see below | Lint, type-check and pytest configuration |
 | `data/` | runtime | User config, firmware uploads under `data/bin/`, runtime state. Gitignored in full |
 
-Which parts are inherited from `xinnan-tech/xiaozhi-esp32-server` and how they are synced:
+Which parts are inherited from the upstream project and how they are synced:
 [upstream.md](upstream.md). What was renamed and deleted during the migration:
 [migration.md](migration.md).
 
@@ -55,7 +55,7 @@ at startup), and an Opus shared library — bundled in `libs/` for Windows and m
 as `libopus0` on Linux.
 
 ```bash
-cd main/kivo-server
+cd main/nilo-server
 python3.12 -m venv .venv && . .venv/bin/activate
 ```
 
@@ -81,24 +81,24 @@ provider is simply unavailable on macOS.
 
 **Version pins:** `torch`/`torchaudio` are pinned together because funasr requires that pair,
 `numpy` is left unpinned so the resolver can solve, and `websockets` is held at `14.2` because
-`cozepy` requires `<15`. Dependabot proposes weekly pip updates against `main/kivo-server`.
+`cozepy` requires `<15`. Dependabot proposes weekly pip updates against `main/nilo-server`.
 
 ## Running locally
 
 The server needs a user override file. In normal use that is `data/.config.yaml`; for a
-throwaway run, point `KIVO_CONFIG` at any YAML file instead:
+throwaway run, point `NILO_CONFIG` at any YAML file instead:
 
 ```bash
-cd main/kivo-server
-echo '{}' > /tmp/kivo-dev.yaml
-KIVO_CONFIG=/tmp/kivo-dev.yaml python app.py
+cd main/nilo-server
+echo '{}' > /tmp/nilo-dev.yaml
+NILO_CONFIG=/tmp/nilo-dev.yaml python app.py
 ```
 
 If neither exists, startup fails fast with a `FileNotFoundError` naming the path
 (`config/settings.py:check_config_file`, reached through `config/logger.py:setup_logging`).
 An empty file is valid — every key then comes from `config.yaml`.
 
-Run from `main/kivo-server`, not from the repository root. The provider factories test for a
+Run from `main/nilo-server`, not from the repository root. The provider factories test for a
 provider module with a **relative** path (`os.path.join('core', 'providers', 'llm', …)` in
 `core/utils/llm.py`), so a different working directory makes every provider look unsupported.
 `make run` does the `cd` for you.
@@ -108,14 +108,16 @@ Five environment variables are recognised; they override both config files
 
 | Variable | Overrides |
 |---|---|
-| `KIVO_CONFIG` | Path of the user override file (default `data/.config.yaml`) |
-| `KIVO_SERVER_HOST` | `server.ip` |
-| `KIVO_SERVER_PORT` | `server.port` (WebSocket, default 8000) |
-| `KIVO_HTTP_PORT` | `server.http_port` (HTTP/OTA, default 8003) |
-| `KIVO_LOG_LEVEL` | `log.log_level` |
+| `NILO_CONFIG` | Path of the user override file (default `data/.config.yaml`) |
+| `NILO_SERVER_HOST` | `server.ip` |
+| `NILO_SERVER_PORT` | `server.port` (WebSocket, default 8000) |
+| `NILO_HTTP_PORT` | `server.http_port` (HTTP/OTA, default 8003) |
+| `NILO_LOG_LEVEL` | `log.log_level` |
 
 Against a running server, `scripts/smoke_check.py` checks the OTA endpoint, the WebSocket
-handshake and the hello exchange on every enabled protocol route:
+handshake and the hello exchange on every enabled protocol route, and separately checks that
+the routes this server retired answer 404. It also reports how an unknown WebSocket path is
+handled — rejected unless `protocols.strict` is false:
 
 ```bash
 make smoke                       # HOST=127.0.0.1 WS_PORT=8000 HTTP_PORT=8003 by default
@@ -129,24 +131,24 @@ to `python`; override it to use a specific interpreter (`make test PY=.venv/bin/
 
 | Target | Runs |
 |---|---|
-| `make test` | `cd main/kivo-server && python -m pytest -q` |
-| `make lint` | `cd main/kivo-server && ruff check .` |
-| `make typecheck` | `cd main/kivo-server && mypy` |
-| `make check-docs` | `python scripts/check_docs.py` — links, repo paths, `KIVO_*` names, branding |
-| `make run` | `cd main/kivo-server && python app.py` |
-| `make compose-validate` | `cd main/kivo-server && docker compose -f docker-compose.yml config --quiet` |
-| `make docker-build` | Builds `ghcr.io/aa-box/kivo-server:base` and `:latest` |
+| `make test` | `cd main/nilo-server && python -m pytest -q` |
+| `make lint` | `cd main/nilo-server && ruff check .` |
+| `make typecheck` | `cd main/nilo-server && mypy` |
+| `make check-docs` | `python scripts/check_docs.py` — links, repo paths, `NILO_*` names, branding |
+| `make run` | `cd main/nilo-server && python app.py` |
+| `make compose-validate` | `cd main/nilo-server && docker compose -f docker-compose.yml config --quiet` |
+| `make docker-build` | Builds `ghcr.io/aa-box/nilo-server:base` and `:latest` |
 | `make smoke` | `python scripts/smoke_check.py` against a running server |
 | `make help` | Lists the above |
 
 ## Formatting and linting
 
-Ruff, configured in `main/kivo-server/.ruff.toml` — a separate file rather than a
+Ruff, configured in `main/nilo-server/.ruff.toml` — a separate file rather than a
 `[tool.ruff]` block, because `pyproject.toml` is vendored from upstream and every line added
 there is a line that can conflict on the next sync.
 
 ```bash
-make lint          # or: cd main/kivo-server && ruff check .
+make lint          # or: cd main/nilo-server && ruff check .
 ```
 
 The rule set is deliberately narrow. It is a **repo-wide floor**: bug-only rules that are
@@ -168,7 +170,7 @@ and `libs` are excluded. No style or import-order rules are enabled, so Ruff wil
 inherited code out from under an upstream merge.
 
 **Planned:** a second tier, `robot/.ruff.toml`, extending this file with the full style and
-typing rule set so new Kivo code is held to a higher bar than the vendored tree. It does not
+typing rule set so new Nilo code is held to a higher bar than the vendored tree. It does not
 exist yet; see [robot-roadmap.md](robot-roadmap.md).
 
 ## Tests
@@ -177,19 +179,19 @@ pytest, configured in `pyproject.toml` (`asyncio_mode = "auto"`, `testpaths = ["
 `addopts = "-ra"`).
 
 ```bash
-make test          # or: cd main/kivo-server && python -m pytest -q
+make test          # or: cd main/nilo-server && python -m pytest -q
 ```
 
 `tests/conftest.py` does two things before any test imports a project module:
 
-1. Inserts the `main/kivo-server` directory at the front of `sys.path`, so the implicit
+1. Inserts the `main/nilo-server` directory at the front of `sys.path`, so the implicit
    top-level imports the inherited code uses (`from core.utils.textUtils import …`) resolve.
-2. Sets `KIVO_CONFIG` (via `setdefault`) to `tests/fixtures/test_config.yaml` — a committed,
+2. Sets `NILO_CONFIG` (via `setdefault`) to `tests/fixtures/test_config.yaml` — a committed,
    empty (`{}`) override file. Tests therefore never read or write your `data/.config.yaml`,
    and the config and logging machinery works on a machine that has never been configured.
 
 With the full dependency set the suite is 126 tests and runs in about a second. Coverage
-today: the config loader and `KIVO_*` overrides, `robot/protocol`, the HTTP routes and the
+today: the config loader and `NILO_*` overrides, `robot/protocol`, the HTTP routes and the
 WebSocket path gate, the plugin registry and loader, text/dialogue/time utilities, the
 Compose file, and an import test that walks every first-party module.
 
@@ -214,14 +216,14 @@ makes the fast slice unrunnable is caught.
 
 ## Type checking
 
-mypy, configured in `main/kivo-server/mypy.ini` (again a separate file, same reason as
+mypy, configured in `main/nilo-server/mypy.ini` (again a separate file, same reason as
 `.ruff.toml`).
 
 ```bash
-make typecheck     # or: cd main/kivo-server && mypy
+make typecheck     # or: cd main/nilo-server && mypy
 ```
 
-`files = robot`, so the bare `mypy` command checks only the Kivo-owned package — `mypy .` is
+`files = robot`, so the bare `mypy` command checks only the Nilo-owned package — `mypy .` is
 not a goal and would report thousands of errors on untyped inherited code.
 
 | Scope | Settings |
@@ -236,7 +238,7 @@ New code under `robot/` is written fully annotated from the start. Both `ruff ch
 ## Continuous integration
 
 `.github/workflows/test.yml` runs on pushes to `main`/`develop` and on every pull request,
-with `working-directory: main/kivo-server`:
+with `working-directory: main/nilo-server`:
 
 | Job | What it does |
 |---|---|
@@ -248,15 +250,15 @@ with `working-directory: main/kivo-server`:
 Two more workflows build images: `docker-image.yml` and `build-base-image.yml`
 (see [deployment.md](deployment.md)).
 
-## Where Kivo-specific code goes
+## Where Nilo-specific code goes
 
-The rule, stated in [`main/kivo-server/CLAUDE.md`](../main/kivo-server/CLAUDE.md) and expanded
+The rule, stated in [`main/nilo-server/CLAUDE.md`](../main/nilo-server/CLAUDE.md) and expanded
 in [robot-architecture.md](robot-architecture.md):
 
 > New robot functionality goes under `robot/`; attach to `core/` through the smallest possible
 > hook. Every line changed in `core/` is a line that conflicts on the next upstream port.
 
-`robot/` is the only Kivo-owned Python package. It is strictly typed, product-neutral in its
+`robot/` is the only Nilo-owned Python package. It is strictly typed, product-neutral in its
 vocabulary (see [branding.md](branding.md)), and today contains just the protocol registry —
 the robot domain layer (actions, behaviour, world model, robot memory, simulator, safety
 policy) is **Planned**, not implemented.
@@ -270,7 +272,7 @@ flowchart LR
     CONN --> MCP["② call_mcp_tool()<br/>core/providers/tools/device_mcp/mcp_handler.py"]
     LLM["LLM tool call"] --> FUNC["③ @register_function(..., ToolType.IOT_CTL)<br/>plugins/register.py"]
     CONN --> SCAN["④ scan_plugins()<br/>plugins/__init__.py, called from core/connection.py"]
-    REG --> ROBOT["robot/ (Kivo-owned)"]
+    REG --> ROBOT["robot/ (Nilo-owned)"]
     MCP --> ROBOT
     FUNC --> ROBOT
     SCAN --> ROBOT
@@ -278,7 +280,7 @@ flowchart LR
 
 | Seam | Code | Use it for |
 |---|---|---|
-| ① Inbound message types | `core/handle/textHandle.py:message_registry` → `core/handle/textMessageHandlerRegistry.py:TextMessageHandlerRegistry.register_handler` | New JSON `type` values on the device WebSocket. The registry keys on `handler.message_type.value` with no `isinstance` check, so a robot-owned enum works. Do not reuse the names in `robot/protocol/legacy_xiaozhi.py:RESERVED_MESSAGE_TYPES` |
+| ① Inbound message types | `core/handle/textHandle.py:message_registry` → `core/handle/textMessageHandlerRegistry.py:TextMessageHandlerRegistry.register_handler` | New JSON `type` values on the device WebSocket. The registry keys on `handler.message_type.value` with no `isinstance` check, so a robot-owned enum works. Do not reuse the names in `robot/protocol/nilo.py:RESERVED_MESSAGE_TYPES` |
 | ② Outbound device calls | `core/providers/tools/device_mcp/mcp_handler.py:call_mcp_tool` | Invoking a tool the device published over MCP. Pass an explicit short `timeout`; the default is 30 s |
 | ③ LLM-visible tools | `plugins/register.py:register_function` with `ToolType.IOT_CTL` | `core/providers/tools/server_plugins/plugin_executor.py:ServerPluginExecutor.get_tools` exposes a function to the LLM if its name is in `necessary_functions`, in `config["Intent"][selected]["functions"]`, or if its type code is `IOT_CTL` — the last is the only branch that needs no config edit |
 | ④ Bootstrap | `plugins/__init__.py:scan_plugins`, called at import of `core/connection.py` | A new `plugins/<name>/__init__.py` directory is never a merge conflict. It runs at import time, before the event loop exists, so defer async work |
@@ -293,7 +295,7 @@ break a voice session, and list it under "Inherited-code changes" in the pull re
 
 ## Plugin development
 
-Full guide: [`plugins/README.md`](../main/kivo-server/plugins/README.md). In short, one
+Full guide: [`plugins/README.md`](../main/nilo-server/plugins/README.md). In short, one
 directory per plugin under `plugins/`, each with an `__init__.py`, which may contain either or
 both of:
 
@@ -320,7 +322,7 @@ Providers are resolved by filename. Drop a module into the right directory and a
 block whose `type` matches that filename — no registry to edit. The factory is
 `create_instance` in the matching `core/utils/<kind>.py`, and it looks for the module relative
 to the working directory, so it only resolves when the process was started from
-`main/kivo-server`.
+`main/nilo-server`.
 
 | Kind | Module path | Class the module must define | Config section |
 |---|---|---|---|
@@ -353,12 +355,12 @@ suite.
 | `performance_tester_stream_tts.py` | Streaming TTS |
 | `performance_tester_vllm.py` | Vision LLM |
 
-Run them as modules from `main/kivo-server` — they use the same implicit top-level imports as
+Run them as modules from `main/nilo-server` — they use the same implicit top-level imports as
 the rest of the server, so running the file by path fails with `ModuleNotFoundError: No module
 named 'core'`:
 
 ```bash
-cd main/kivo-server
+cd main/nilo-server
 python -m performance_tester.performance_tester_llm
 ```
 
@@ -373,7 +375,7 @@ inherited-code changes, and the commands you ran. The checklist:
 
 - [ ] `make lint` and `make typecheck` pass
 - [ ] `make test` passes (full dependencies, or the dev slice with the relevant tests un-skipped)
-- [ ] Devices on both `/kivo/v1/` and `/xiaozhi/v1/` still connect, if this touches the protocol or server startup
+- [ ] Devices still connect on `/nilo/v1/`, if this touches the protocol or server startup
 - [ ] Docs under `docs/` updated for any behaviour, config key, route or command that changed
 - [ ] No new Chinese-language strings, no product branding in domain code (see [branding.md](branding.md))
 - [ ] Changes to inherited `core/` code are minimal and noted below
@@ -384,7 +386,7 @@ routes, logs) and never in domain class or module names. If you did touch `core/
 or `plugins_func/`, list the files and say why a `robot/`-side hook was not enough.
 
 Branch targets are `main` and `develop`; `upstream` is a vendor branch that must never receive
-Kivo commits.
+Nilo commits.
 
 ## Porting upstream changes
 
@@ -404,6 +406,6 @@ comment-only hunks, `config.yaml`, `requirements.txt` — are documented in
 
 There are none. The inherited Java management console (`manager-api`), its Vue web UI
 (`manager-web`), the mobile client (`manager-mobile`) and the browser test client were all
-removed during the migration; `kivo-server` is a single Python process configured by YAML
-files. Details and rationale: [migration.md](migration.md). A Kivo management API is
+removed during the migration; `nilo-server` is a single Python process configured by YAML
+files. Details and rationale: [migration.md](migration.md). A Nilo management API is
 **Planned** ([robot-roadmap.md](robot-roadmap.md)).

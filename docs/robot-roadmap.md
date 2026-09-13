@@ -3,7 +3,7 @@
 Implementation phases and acceptance criteria for the architecture in
 [robot-architecture.md](robot-architecture.md).
 
-Kivo today is a voice/vision session backend with a device protocol registry. The robot
+Nilo today is a voice/vision session backend with a device protocol registry. The robot
 domain — actions, safety policy, world model, behaviour, personality, memory, simulator —
 is **not implemented**. This page is the plan for building it, and the honest boundary
 between what runs and what is design. Nothing below Phase 0 exists in the tree.
@@ -42,19 +42,19 @@ The rebrand and the preceding audit closed most of this phase. Verified in the t
 
 | Item | Where |
 |---|---|
-| Server directory renamed to kivo-server; the Java manager modules are gone, so `main/` holds one component | `main/kivo-server`, [migration.md](migration.md) |
-| Device protocol registry with two named protocols — `kivo` (`/kivo/v1/`, `/kivo/ota/`) and `legacy_xiaozhi` (the routes baked into existing firmware) — consumed by both servers instead of hard-coded paths | `robot/protocol/base.py:ProtocolRegistry`, `core/http_server.py:SimpleHttpServer._build_app`, `core/websocket_server.py:WebSocketServer._http_response` |
-| `KIVO_CONFIG`, `KIVO_SERVER_HOST`, `KIVO_SERVER_PORT`, `KIVO_HTTP_PORT`, `KIVO_LOG_LEVEL` override config keys; the old top-level `xiaozhi` config key loads as `hello` with a deprecation warning | `config/config_loader.py:ENV_OVERRIDES`, `config/config_loader.py:apply_deprecated_aliases` |
+| Server directory renamed to nilo-server; the Java manager modules are gone, so `main/` holds one component | `main/nilo-server`, [migration.md](migration.md) |
+| Device protocol registry with one named protocol — `nilo` (`/nilo/v1/`, `/nilo/ota/`) — consumed by both servers instead of hard-coded paths, with `protocols.strict` (shipped `true`) rejecting any WebSocket path that matches no protocol | `robot/protocol/base.py:ProtocolRegistry`, `core/http_server.py:SimpleHttpServer._build_app`, `core/websocket_server.py:WebSocketServer._http_response` |
+| `NILO_SERVER_HOST`, `NILO_SERVER_PORT`, `NILO_HTTP_PORT` and `NILO_LOG_LEVEL` override config keys, and `NILO_CONFIG` selects the user config file; no deprecated config aliases are left, so only the current key names load | `config/config_loader.py:ENV_OVERRIDES`, `config/config_loader.py:custom_config_path`, `config/config_loader.py:DEPRECATED_KEYS` |
 | Module-level test skips removed. `pytest -q` collects and runs the suite; the only skips left are `pytest.importorskip` guards for the heavy runtime packages, so the dev-only dependency slice still runs | `tests/core/test_http_routes.py`, `tests/core/test_ws_path_gate.py`, `tests/plugins_func/test_loadplugins.py` |
-| Tests no longer need a hand-written `data/.config.yaml`: `tests/conftest.py` points `KIVO_CONFIG` at a committed fixture | `tests/conftest.py`, `tests/fixtures/test_config.yaml` |
+| Tests no longer need a hand-written `data/.config.yaml`: `tests/conftest.py` points `NILO_CONFIG` at a committed fixture | `tests/conftest.py`, `tests/fixtures/test_config.yaml` |
 | One Python version everywhere. CI runs 3.12 only, on `main`, `develop` and every PR, in four jobs: lint plus type-check plus docs check, full dependencies, the dev-only slice, and `docker compose config` | `.github/workflows/test.yml` |
 | Repo-wide bug-only lint floor and strict mypy scoped to robot code | `.ruff.toml`, `mypy.ini` |
 | `Makefile` targets: `test`, `lint`, `typecheck`, `check-docs`, `run`, `compose-validate`, `docker-build`, `smoke` | `Makefile` |
 | `plugins/register.py` fixed (`FunctionRegistry.__init__` no longer calls an undefined `setup_logging()`); the registry contract and the `Action`/`ToolType` codes that `ServerPluginExecutor` dispatches on are pinned by tests | `plugins/register.py`, `tests/plugins/test_register.py` |
-| Agent instructions rewritten: they name the robot subsystem, the docs, `pytest`, `ruff`, `mypy` and the no-inherited-edits rule, and every command in them runs | `main/kivo-server/CLAUDE.md` |
+| Agent instructions rewritten: they name the robot subsystem, the docs, `pytest`, `ruff`, `mypy` and the no-inherited-edits rule, and every command in them runs | `main/nilo-server/CLAUDE.md` |
 | The imperative `test_plugin.py` script at the server root is deleted, so widening `testpaths` for new test directories cannot abort a run | `pyproject.toml` |
 | The archive of 26 unmerged upstream patches is pruned from the working tree | [migration.md](migration.md) |
-| Branding and documentation are checked mechanically in CI: link resolution, backticked paths, `KIVO_*` names, no Chinese text, legacy identifiers only where allowed | `scripts/check_docs.py`, `.github/workflows/test.yml` |
+| Branding and documentation are checked mechanically in CI: link resolution, backticked paths, `NILO_*` names, no Chinese text, legacy identifiers only where allowed | `scripts/check_docs.py`, `.github/workflows/test.yml` |
 
 ### Remaining
 
@@ -62,7 +62,7 @@ The rebrand and the preceding audit closed most of this phase. Verified in the t
 |---|---|---|
 | 0.1 | Add a ruff config under **robot/** extending `.ruff.toml` with the full style/typing rule set, plus a `flake8-tidy-imports` banned-import rule enforcing the layering table in robot-architecture §7 — in particular that no LLM-facing module may import a motion primitive. | The central safety invariant is currently enforced by nothing mechanical. |
 | 0.2 | Gate `.github/workflows/docker-image.yml` on the Tests workflow passing, not only on the base-image build. It already refuses to run when a `workflow_run` trigger reports a failed conclusion, but it still publishes to ghcr.io without running a test. | A release path that never runs tests will eventually ship a broken image. |
-| 0.3 | Get `make check-docs` to zero problems and keep it there. It is already a required CI step. | A branding and link checker that is allowed to be red is not a check. |
+| 0.3 | Keep `make check-docs` at zero problems as pages are added and edited. It reports zero today and is already a required CI step. | A branding and link checker that is allowed to be red is not a check. |
 
 ### Acceptance criteria
 
@@ -106,7 +106,7 @@ session protocol and device MCP), and tests under `tests/robot/`.
   (`core/handle/textMessageProcessor.py:TextMessageProcessor.process_message`), so without
   an ack, firmware skew is invisible from the device side.
 * New message type names must not collide with the wire vocabulary already in use:
-  `robot/protocol/legacy_xiaozhi.py:RESERVED_MESSAGE_TYPES`.
+  `robot/protocol/nilo.py:RESERVED_MESSAGE_TYPES`.
 * Event-bus queues are **bounded with drop-oldest**. The inherited audio queue is an
   unbounded `queue.Queue` (`core/connection.py:ConnectionHandler.__init__`, `asr_audio_queue`)
   and backlogs silently under load; do not copy that.
@@ -115,13 +115,12 @@ session protocol and device MCP), and tests under `tests/robot/`.
 
 ### Acceptance criteria
 
-* `import robot` succeeds in a venv with **no** `data/.config.yaml`, no `KIVO_CONFIG`, and
+* `import robot` succeeds in a venv with **no** `data/.config.yaml`, no `NILO_CONFIG`, and
   no loguru configured. Asserted by a test that runs in a subprocess with a clean `cwd`.
 * `mypy` passes at the strict `robot.*` settings, zero `# type: ignore`.
 * The simulator connects to a running `app.py`, completes the session handshake against
-  both the `kivo` and the `legacy_xiaozhi` routes, answers `initialize` and `tools/list`,
-  and appears in the server log as a device with tools — verified by an integration test,
-  not by hand.
+  the `nilo` route, answers `initialize` and `tools/list`, and appears in the server log as
+  a device with tools — verified by an integration test, not by hand.
 * A protocol round-trip test: every message model serializes, deserializes, and rejects a
   wrong version with a typed error rather than an exception trace.
 * An event-bus test proves drop-oldest under a producer faster than its consumer, and that
@@ -306,8 +305,8 @@ Expose actions to the LLM. This is where the critical design rule becomes real.
   low-latency perception replies: a JSON result carrying an `action` field is turned
   straight into an `ActionResponse` and skips the second LLM pass.
 * The vision auth token is minted per connection and carries a fixed lifetime
-  (`core/auth.py:AuthManager.generate_token`, 30 days by default), so a long-lived session
-  eventually holds an expired token. Either refresh it or document the ceiling.
+  (`core/utils/auth.py:AuthToken.generate_token`, one hour, never refreshed), so a session
+  older than an hour holds an expired token. Either refresh it or document the ceiling.
 
 ### Acceptance criteria
 
@@ -447,7 +446,7 @@ needs both 4 and 5. Phase 7 needs 3 for e-stop and 4 for the action vocabulary.
 
 | Risk | Phase it bites | Current mitigation |
 |---|---|---|
-| Robot firmware may not speak the device MCP dialect the action layer assumes | 2, 4 | The protocol registry already supports adding a named protocol with its own routes (`robot/protocol/base.py:ProtocolSpec`). A robot-specific protocol is a new spec plus a route, not a fork of the session server. |
+| Robot firmware may not speak the device MCP dialect the action layer assumes | 2, 4 | The protocol registry already supports adding a named protocol with its own routes (`robot/protocol/base.py:ProtocolSpec`). A robot-specific protocol is a new spec plus a route, not a fork of the session server. With `protocols.strict` shipped `true`, a device on an unregistered path is refused with 404 rather than quietly accepted, so the spec has to land before the firmware can connect. |
 | Inherited code restructures `plugins/` or the tool registry on the next upstream sync | 2 | Bridge self-assertion fails loudly rather than silently; the compatibility regression test catches it in CI. See [upstream.md](upstream.md). |
 | Device tools silently shadow guarded robot tools in the flat namespace | 4 | Collision detection at session start (Phase 4), because `ToolManager.get_all_tools` only logs a warning. |
 | Provider instance sharing between two robots (R5) | 7 | Per-device construction, asserted by the two-robot concurrency test. |

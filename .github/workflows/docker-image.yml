@@ -11,11 +11,11 @@ on:
       - completed
 
 env:
-  IMAGE: ghcr.io/aa-box/kivo-server
+  IMAGE: ghcr.io/aa-box/nilo-server
 
 jobs:
   release:
-    name: Build and push kivo-server
+    name: Build and push nilo-server
     runs-on: ubuntu-latest
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     permissions:

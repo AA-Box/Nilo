@@ -1,38 +1,38 @@
-# Kivo
+# Nilo
 
-Kivo is an open backend platform for autonomous social robots with voice, vision, memory,
+Nilo is an open backend platform for autonomous social robots with voice, vision, memory,
 personality, and embodied behavior.
 
-## What Kivo is
+## What Nilo is
 
-Kivo Server is the brain that a small social robot talks to. Today it is a production-grade
+Nilo Server is the brain that a small social robot talks to. Today it is a production-grade
 **voice session server**: a robot (or any compatible device) opens a WebSocket, streams Opus audio,
 and the server runs voice activity detection, speech recognition, an LLM with tool calling, and
 text-to-speech, streaming audio back. Tools reach the device through MCP, so the robot's own
 hardware capabilities are exposed to the agent as callable tools.
 
-Around that core, Kivo is growing a **robot domain layer** — world state, behaviour, personality,
+Around that core, Nilo is growing a **robot domain layer** — world state, behaviour, personality,
 an action executor and a safety policy — so the same server can drive an expressive robot rather
 than a smart speaker. The direction is described in [docs/robot-architecture.md](docs/robot-architecture.md).
 
 ## Current status
 
-**Implemented** (in `main/kivo-server/`, verified against the code):
+**Implemented** (in `main/nilo-server/`, verified against the code):
 
 * WebSocket device sessions with a JSON control channel and binary Opus audio (`core/connection.py`)
-* Two device-facing protocols on separate routes: `kivo` (`/kivo/v1/`, `/kivo/ota/`) and a
-  `legacy_xiaozhi` compatibility protocol (`robot/protocol/`)
+* A Nilo-owned device protocol (`robot/protocol/`): WebSocket on `/nilo/v1/`, OTA on `/nilo/ota/`;
+  routes come from a registry, not from hard-coded paths, and unknown paths are rejected
 * HTTP OTA bootstrap that hands devices their WebSocket URL, auth token and firmware updates from `data/bin/`
 * Audio pipeline: Silero VAD, streaming and batch ASR, sentence-chunked streaming TTS, barge-in (`abort`)
 * Provider abstraction with 17 ASR, 21 TTS, 17 LLM, 3 vision-LLM, 4 memory and 3 intent configurations ([docs/providers.md](docs/providers.md))
 * Unified tool system: server plugins, device IoT descriptors, device MCP tools, remote MCP endpoints, server-side MCP servers ([docs/mcp.md](docs/mcp.md))
 * Vision: `/mcp/vision/explain` runs a vision-LLM over a device camera frame
-* Configuration layering (`config.yaml` → user file → `KIVO_*` environment), HMAC device tokens, structured logging
+* Configuration layering (`config.yaml` → user file → `NILO_*` environment), HMAC device tokens, structured logging
 * Test suite, lint (Ruff), strict typing for `robot/` (mypy), Docker image and Compose file
 
 **In development:**
 
-* Robot domain layer under `main/kivo-server/robot/` — the protocol registry is the first piece
+* Robot domain layer under `main/nilo-server/robot/` — the protocol registry is the first piece
 * Semantic action vocabulary (`move`, `turn`, `look_at`, `follow`, `play_animation`, `stop`) and the action executor
 * Robot simulator (Python client that speaks the device protocol)
 
@@ -43,14 +43,14 @@ pipeline, robot memory, management API, physical robot firmware. See
 ## Architecture
 
 ```
-robot / device ──WebSocket + Opus──▶ kivo-server
+robot / device ──WebSocket + Opus──▶ nilo-server
                                       ├─ inherited infrastructure (core/)
                                       │    session handler · VAD → ASR → LLM → TTS · tool system · MCP · OTA · vision
-                                      └─ Kivo robotics layers (robot/)
+                                      └─ Nilo robotics layers (robot/)
                                            protocol registry ✓ · actions · safety · behaviour · world model · memory
 ```
 
-The inherited infrastructure is a stable, well-tested voice pipeline; Kivo adds robotics on top
+The inherited infrastructure is a stable, well-tested voice pipeline; Nilo adds robotics on top
 of it through a few explicit seams instead of rewriting it. Details: [docs/architecture.md](docs/architecture.md)
 (what runs today) and [docs/robot-architecture.md](docs/robot-architecture.md) (where it is going).
 
@@ -60,8 +60,8 @@ Requirements: Python 3.12, `ffmpeg` on the PATH, an LLM API key (any OpenAI-comp
 On Linux install `libopus0`; macOS and Windows use the bundled Opus libraries in `libs/`.
 
 ```bash
-git clone https://github.com/AA-Box/Cozmo.git kivo
-cd kivo/main/kivo-server
+git clone https://github.com/AA-Box/Cozmo.git nilo
+cd nilo/main/nilo-server
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -93,9 +93,8 @@ Start the server:
 python app.py
 ```
 
-The log prints the OTA and WebSocket endpoints for each enabled protocol. Point a device at
-`http://<host>:8003/kivo/ota/` (existing Xiaozhi-family firmware uses `/xiaozhi/ota/` and keeps
-working), or check the routes yourself:
+The log prints the OTA and WebSocket endpoints. Point a device at `http://<host>:8003/nilo/ota/`
+and it receives the WebSocket URL to connect to, or check the routes yourself:
 
 ```bash
 python ../../scripts/smoke_check.py
@@ -105,15 +104,15 @@ More: [docs/getting-started.md](docs/getting-started.md).
 
 ## Configuration
 
-Three layers, later wins: `main/kivo-server/config.yaml` (shipped defaults, fully commented) →
-the user file (`data/.config.yaml`, or the file named by `KIVO_CONFIG`) → environment variables
-`KIVO_SERVER_HOST`, `KIVO_SERVER_PORT`, `KIVO_HTTP_PORT`, `KIVO_LOG_LEVEL`. Providers are chosen in
+Three layers, later wins: `main/nilo-server/config.yaml` (shipped defaults, fully commented) →
+the user file (`data/.config.yaml`, or the file named by `NILO_CONFIG`) → environment variables
+`NILO_SERVER_HOST`, `NILO_SERVER_PORT`, `NILO_HTTP_PORT`, `NILO_LOG_LEVEL`. Providers are chosen in
 `selected_module`; each provider block's `type` names the adapter module. Full reference:
 [docs/configuration.md](docs/configuration.md).
 
 ## Supported AI providers
 
-Derived from `main/kivo-server/core/providers/`:
+Derived from `main/nilo-server/core/providers/`:
 
 | Kind | Adapters |
 |---|---|
@@ -150,19 +149,19 @@ owns acceleration limits, collision and cliff avoidance, watchdogs and emergency
 ## Development
 
 ```bash
-cd main/kivo-server
+cd main/nilo-server
 pip install -r requirements-dev.txt     # test/lint tooling + the slice the tests need
 ruff check .                            # lint
 mypy                                    # strict types for robot/
 pytest -q                               # tests (heavy ones skip without the full requirements)
 ```
 
-Kivo-specific code goes under `main/kivo-server/robot/`; inherited code under `core/` is edited
+Nilo-specific code goes under `main/nilo-server/robot/`; inherited code under `core/` is edited
 as little as possible. Layout, conventions and where things go: [docs/development.md](docs/development.md).
 
 ## Testing
 
-`pytest -q` in `main/kivo-server` (124 tests with the full requirements installed);
+`pytest -q` in `main/nilo-server` (124 tests with the full requirements installed);
 `make test`, `make lint`, `make typecheck` from the repository root; `scripts/smoke_check.py`
 against a running server. CI runs lint + mypy, the suite on Python 3.12 with full and with
 dev-only dependencies, and validates the Compose file. Details: [docs/testing.md](docs/testing.md).
@@ -170,12 +169,12 @@ dev-only dependencies, and validates the Compose file. Details: [docs/testing.md
 ## Docker
 
 ```bash
-make docker-build                       # ghcr.io/aa-box/kivo-server:base and :latest, locally
-cd main/kivo-server && docker compose up -d
+make docker-build                       # ghcr.io/aa-box/nilo-server:base and :latest, locally
+cd main/nilo-server && docker compose up -d
 ```
 
 The Compose file mounts `./data` (your config) and the FunASR model file, exposes 8000 (WebSocket)
-and 8003 (HTTP) and takes `KIVO_*` variables. Deployment options: [docs/deployment.md](docs/deployment.md).
+and 8003 (HTTP) and takes `NILO_*` variables. Deployment options: [docs/deployment.md](docs/deployment.md).
 
 ## Roadmap
 
@@ -192,10 +191,11 @@ safety, testing, upstream provenance, branding, migration — all under [docs/](
 
 ## Origins and attribution
 
-Kivo began from open-source infrastructure from
+Nilo began from open-source infrastructure from
 [xinnan-tech/xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server) and has
-since been adapted toward a general autonomous robotics backend. The engineering record of that
-origin is in [docs/upstream.md](docs/upstream.md). Kivo is inspired by social robots such as
-Cozmo but is not affiliated with Anki, Digital Dream Labs, Xiaozhi or xinnan-tech.
+since been adapted toward a general autonomous robotics backend; it no longer shares that
+project's device protocol or endpoints. The engineering record of the origin is in
+[docs/upstream.md](docs/upstream.md). Nilo is inspired by social robots such as Cozmo but is not
+affiliated with Anki, Digital Dream Labs or any upstream project.
 
 Licensed under the MIT License; see [LICENSE](LICENSE), which retains the original copyright notice.

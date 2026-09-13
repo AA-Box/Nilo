@@ -5,17 +5,17 @@ on:
     branches:
       - main
     paths:
-      - 'main/kivo-server/requirements.txt'
+      - 'main/nilo-server/requirements.txt'
       - 'Dockerfile-server-base'
       - '.github/workflows/build-base-image.yml'
   workflow_dispatch:
 
 env:
-  IMAGE: ghcr.io/aa-box/kivo-server
+  IMAGE: ghcr.io/aa-box/nilo-server
 
 jobs:
   build-base:
-    name: Build and push kivo-server base image
+    name: Build and push nilo-server base image
     runs-on: ubuntu-latest
     permissions:
       packages: write

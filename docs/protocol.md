@@ -1,9 +1,9 @@
 # Device protocol
 
-**Status: Implemented.** Everything on this page exists in `kivo-server` today and is covered by
+**Status: Implemented.** Everything on this page exists in `nilo-server` today and is covered by
 `tests/robot/test_protocol.py`, `tests/core/test_ws_path_gate.py` and `tests/core/test_http_routes.py`.
 
-A Kivo device talks to the server over one long-lived WebSocket session that carries **JSON control
+A Nilo device talks to the server over one long-lived WebSocket session that carries **JSON control
 messages** and **binary Opus audio**, bootstrapped by a plain **HTTP OTA request** that tells the
 device where that WebSocket lives. Both halves are served by the single `python app.py` process:
 the WebSocket on `server.port` (default 8000), the OTA endpoint on `server.http_port` (default 8003).
@@ -19,17 +19,16 @@ the server asks the registry which routes exist.
 |---|---|---|
 | `ProtocolSpec` | `robot/protocol/base.py` | A frozen pydantic model: `name`, `ws_path`, `ota_path`, `enabled`. Both paths are validated to start and end with `/`. `ota_download_path` derives `{ota_path}download/{filename}`. |
 | `ProtocolRegistry` | `robot/protocol/base.py` | The enabled/disabled view over the known specs. Provides `enabled()`, `default()`, `match_ws_path()`, `ws_accepts()`, `ws_url(host, port)`. |
-| `KIVO` | `robot/protocol/kivo.py` | `ProtocolSpec(name="kivo", ws_path="/kivo/v1/", ota_path="/kivo/ota/")` |
-| `LEGACY_XIAOZHI` | `robot/protocol/legacy_xiaozhi.py` | `ProtocolSpec(name="legacy_xiaozhi", ws_path="/xiaozhi/v1/", ota_path="/xiaozhi/ota/")` |
-| `RESERVED_MESSAGE_TYPES` | `robot/protocol/legacy_xiaozhi.py` | The 15 JSON `type` values already spoken on the wire. New Kivo message types must not reuse them. |
+| `NILO` | `robot/protocol/nilo.py` | `ProtocolSpec(name="nilo", ws_path="/nilo/v1/", ota_path="/nilo/ota/")` |
+| `RESERVED_MESSAGE_TYPES` | `robot/protocol/nilo.py` | The 15 JSON `type` values the wire vocabulary has spent: the ten in use plus five held in reserve (see §6). New Nilo message types must not reuse them. |
+| `ALL_PROTOCOLS` | `robot/protocol/__init__.py` | Every known spec, in order — `(NILO,)`. There is exactly one device protocol. |
 | `registry_from_config(config)` | `robot/protocol/__init__.py` | Builds the registry from the `protocols:` config block. |
 
-### Routes per protocol
+### Routes
 
 | Protocol | WebSocket | OTA | Firmware download |
 |---|---|---|---|
-| `kivo` | `/kivo/v1/` | `/kivo/ota/` | `/kivo/ota/download/{filename}` |
-| `legacy_xiaozhi` | `/xiaozhi/v1/` | `/xiaozhi/ota/` | `/xiaozhi/ota/download/{filename}` |
+| `nilo` | `/nilo/v1/` | `/nilo/ota/` | `/nilo/ota/download/{filename}` |
 
 The vision endpoint `/mcp/vision/explain` is **not** protocol-scoped — it is registered once,
 unconditionally, on the HTTP port (`core/http_server.py`). See [mcp.md](mcp.md).
@@ -38,25 +37,33 @@ unconditionally, on the HTTP port (`core/http_server.py`). See [mcp.md](mcp.md).
 
 ```yaml
 protocols:
-  kivo:
-    enabled: true            # /kivo/v1/ and /kivo/ota/
-  legacy_xiaozhi:
-    enabled: true            # /xiaozhi/v1/ and /xiaozhi/ota/
-  strict: false              # true = reject WebSocket paths that match no protocol above
+  nilo:
+    enabled: true            # /nilo/v1/ and /nilo/ota/
+  strict: true               # reject WebSocket paths that match no protocol above
 ```
 
 | Key | Default | Effect |
 |---|---|---|
 | `<name>.enabled` | `true` | Disabling a protocol drops its OTA routes from the aiohttp route table and makes its WebSocket path return `404`. |
-| `strict` | `false` | With `false`, a WebSocket path matching *no* protocol is still accepted (the inherited behaviour). With `true`, it is rejected. |
+| `strict` | `true` | A WebSocket path matching *no* protocol is rejected with `404`. Set it to `false` to accept unmatched paths instead. |
 
-Order matters: `default()` returns the **first enabled** spec, and that is the protocol whose
-`ws_path` the OTA endpoint advertises when `server.websocket` is unset. With the shipped defaults
-that is `kivo`, so devices are steered onto `/kivo/v1/` even when they bootstrapped through the
-legacy OTA route. If every protocol is disabled, `default()` raises `RuntimeError`.
+`default()` returns the **first enabled** spec — with one protocol, `nilo` — and that is the
+protocol whose `ws_path` the OTA endpoint advertises when `server.websocket` is unset. Disable
+`nilo` and nothing is left: `default()` raises `RuntimeError` and no OTA route is registered.
 
-Path matching ignores the query string and a missing trailing slash, so `/kivo/v1`,
-`/kivo/v1/` and `/kivo/v1/?device-id=aa:bb` all resolve to the same spec
+### Why retired paths answer 404
+
+Earlier releases of this server also served a second route pair under a different prefix, for
+devices flashed with third-party firmware. Those routes were removed with the protocol that owned
+them — see [migration.md](migration.md). `strict: true` is what makes them *stay* gone: no spec
+matches, so the OTA paths are absent from the aiohttp route table and the WebSocket gate answers
+`404 unknown protocol path`. A device flashed against a retired OTA path cannot bootstrap and must
+be re-flashed against `/nilo/ota/`; there is no fallback. Setting `strict: false` does not bring the
+old routes back — the OTA handlers are still unregistered — it only makes the WebSocket server
+accept paths it does not recognise.
+
+Path matching ignores the query string and a missing trailing slash, so `/nilo/v1`,
+`/nilo/v1/` and `/nilo/v1/?device-id=aa:bb` all resolve to the same spec
 (`robot/protocol/base.py`, `_normalize`).
 
 ---
@@ -90,8 +97,8 @@ handshake completes:
 | Request | Response |
 |---|---|
 | `Connection: Upgrade` on an enabled protocol path | Handshake proceeds (`101`). |
-| `Connection: Upgrade` on a disabled or (under `strict: true`) unknown path | `404 unknown protocol path`, logged as a warning. |
-| Any request without an upgrade — e.g. a browser `GET` on port 8000 | `200 kivo-server is running` |
+| `Connection: Upgrade` on a disabled path, or (with the shipped `strict: true`) any unknown path | `404 unknown protocol path`, logged as a warning. |
+| Any request without an upgrade — e.g. a browser `GET` on port 8000 | `200 nilo-server is running` |
 
 That last row is the quickest liveness check on the WebSocket port. Invalid-handshake noise
 (for example HTTPS hitting the plain WebSocket port) is filtered out of the logs by
@@ -134,7 +141,7 @@ only used as a fallback for the firmware lookup:
 {
   "server_time": { "timestamp": 1757635200000, "timezone_offset": 480 },
   "firmware":    { "version": "1.2.3", "url": "" },
-  "websocket":   { "url": "ws://192.168.1.10:8000/kivo/v1/", "token": "" }
+  "websocket":   { "url": "ws://192.168.1.10:8000/nilo/v1/", "token": "" }
 }
 ```
 
@@ -147,7 +154,7 @@ only used as a fallback for the firmware lookup:
 | `websocket.url` | `server.websocket` if set to a real value, otherwise generated as `ws://<local-ip>:<server.port><default protocol ws_path>`. |
 | `websocket.token` | An `AuthManager` token when `server.auth.enabled` is true and the device is not allow-listed; otherwise `""`. |
 
-`server.websocket` ships as the placeholder `ws://<your-host-or-domain>:<port>/kivo/v1/`;
+`server.websocket` ships as the placeholder `ws://<your-host-or-domain>:<port>/nilo/v1/`;
 `config/placeholders.py` recognises it as unset, so the server generates the URL instead. Behind
 Docker, a reverse proxy or TLS the generated address is usually wrong — set `server.websocket`
 explicitly. See [configuration.md](configuration.md) and [deployment.md](deployment.md).
@@ -170,7 +177,9 @@ Firmware lives in `data/bin/` and must be named `{model}_{version}.bin`. The dir
 cached for `firmware_cache_ttl` seconds (default 30). Versions are compared segment by segment as
 integers (non-digits are separators, missing segments count as 0); the highest strictly-higher
 version for the device's model wins. The generated download URL reuses the OTA path the request
-arrived on, so a device that bootstrapped via the legacy route is sent a legacy download URL.
+arrived on, with the scheme and host taken from `server.vision_explain` — or, while that is
+still the shipped placeholder, from the generated `http://<local-ip>:<server.http_port>`
+(`core/utils/util.py`, `get_vision_url`).
 
 `GET {ota_path}download/{filename}` serves only basenames matching `^[A-Za-z0-9\.\-_]+\.bin$` whose
 real path resolves inside `data/bin`; anything else gets 400/403/404.
@@ -186,11 +195,11 @@ sequenceDiagram
     participant W as WebSocket :8000<br/>websocket_server
 
     Note over D,H: Bootstrap (skipped when the device already knows the URL)
-    D->>H: POST /kivo/ota/<br/>device-id, client-id headers
+    D->>H: POST /nilo/ota/<br/>device-id, client-id headers
     H-->>D: {server_time, firmware, websocket:{url, token}}
 
     Note over D,W: Session
-    D->>W: Upgrade /kivo/v1/<br/>device-id, client-id, authorization: Bearer <token>
+    D->>W: Upgrade /nilo/v1/<br/>device-id, client-id, authorization: Bearer <token>
     W->>W: registry.ws_accepts(path) → 101, then verify token
     D->>W: {"type":"hello", audio_params, features}
     W-->>D: {"type":"hello", ...config hello block..., session_id, audio_params}
@@ -240,8 +249,8 @@ hello:
 ```
 
 `conn.sample_rate` is read from this block and is the rate at which the server **encodes** outgoing
-TTS audio. The deprecated spelling of this block is `xiaozhi:`; it still loads, renamed with a
-warning by `config/config_loader.py` (`DEPRECATED_KEYS`).
+TTS audio. The block has no alias: `hello:` is the only spelling that loads
+(`config/config_loader.py` — `DEPRECATED_KEYS` is empty).
 
 ---
 
@@ -305,11 +314,11 @@ Every message below is emitted by `core/`. `hello`, `stt`, `tts` and `llm` carry
 | `sentence_start` | One synthesised sentence is about to stream. | the sentence, emoji stripped |
 | `stop` | The turn is over, or an `abort` arrived. Sent after the audio queue has drained. | absent |
 
-There is no `sentence_end` state: kivo-server never emits one, so a client must treat the next
+There is no `sentence_end` state: nilo-server never emits one, so a client must treat the next
 `sentence_start`, or `stop`, as the end of the current sentence. Similarly, five of the names in
 `RESERVED_MESSAGE_TYPES` — `notify`, `alert`, `custom`, `system` and `goodbye` — are sent by no
-current code path — they exist so a future Kivo message type cannot collide with
-what legacy clients already understand.
+current code path. They are reserved so a future Nilo message type cannot collide with a name the
+wire vocabulary has already spent.
 
 ---
 
@@ -332,67 +341,35 @@ direct sessions the frame *is* the Opus packet.
 
 ## 8. The `[device_call]` listen prefix
 
-**Status: legacy, dormant.** A `listen` message with `state: "detect"` whose `text` begins with the
+**Status: dormant.** A `listen` message with `state: "detect"` whose `text` begins with the
 literal `[device_call]` is treated as an inbound call announcement rather than speech: the server
 sets `conn.incoming_call`, echoes the remaining text back as `stt`, speaks it through TTS and
 appends it to the dialogue history — without ever asking the LLM
 (`core/handle/textHandler/listenMessageHandler.py`).
 
-Nothing in kivo-server produces this prefix, and no other code reads `conn.incoming_call`. It is
-kept because firmware in the field may still send it. Do not build on it; Kivo's own
-out-of-band notifications will use a dedicated message type rather than a text prefix.
+Nothing in nilo-server produces this prefix, and no other code reads `conn.incoming_call` beyond
+setting it to `None` on connect. The branch is inherited and still runs if a device sends the
+prefix, but nothing depends on it. Do not build on it: Nilo's own out-of-band notifications will
+use a dedicated message type rather than a text prefix.
 
 ---
 
-## 9. Legacy compatibility
-
-Existing Xiaozhi-family ESP32 firmware bakes its OTA URL in at **compile time** as `/xiaozhi/ota/`.
-A device flashed that way cannot be pointed at a different OTA path without being re-flashed, so
-kivo-server answers on that path too. Everything after bootstrap is negotiated: the device connects
-to whatever WebSocket URL the OTA response returned.
-
-**What `legacy_xiaozhi` keeps identical:** the OTA path, its request and response shape, the
-WebSocket path, and the entire message vocabulary. `RESERVED_MESSAGE_TYPES` is the written-down
-version of that vocabulary, and `robot/protocol/legacy_xiaozhi.py` is the only module in the
-application allowed to spell out legacy route names.
-
-**Kivo's own routes are currently wire-identical.** `/kivo/v1/` and `/kivo/ota/` run the same
-handlers and speak the same messages as the legacy routes. The separation exists so the handshake
-can diverge later — richer `features` negotiation, robot-specific message types — without breaking
-devices that were flashed against the legacy paths. Divergence is **Planned**; see
-[robot-roadmap.md](robot-roadmap.md).
-
-**Disabling legacy support**, once every device has been re-flashed onto the Kivo routes:
-
-```yaml
-protocols:
-  legacy_xiaozhi:
-    enabled: false
-  strict: true          # optional: also reject any other unknown WebSocket path
-```
-
-The legacy OTA routes then disappear from the route table and `/xiaozhi/v1/` answers `404`.
-Because `kivo` is the first spec in `ALL_PROTOCOLS`, devices bootstrapping through the legacy OTA
-route are already being handed the `/kivo/v1/` WebSocket URL, so in practice migration is:
-re-point OTA, let devices pick up the new WebSocket URL, then turn the legacy protocol off.
-
----
-
-## 10. Checking a running server
+## 9. Checking a running server
 
 `scripts/smoke_check.py` exercises the bootstrap and session routes — OTA `GET`, OTA `POST`, and a
-real WebSocket handshake followed by a `hello` exchange — for both protocols, plus a rejected
-unknown WebSocket path. The firmware download route is not covered:
+real WebSocket handshake followed by a `hello` exchange — then probes the retired routes and fails
+unless they are gone (`404` on the HTTP side, a rejected handshake on the WebSocket side). It also
+reports what an unknown WebSocket path did. The firmware download route is not covered:
 
 ```bash
 python scripts/smoke_check.py --host 127.0.0.1 --ws-port 8000 --http-port 8003
-python scripts/smoke_check.py --expect-disabled legacy_xiaozhi   # after turning legacy off
+python scripts/smoke_check.py --expect-disabled nilo   # after turning the protocol off
 ```
 
 The protocol logic itself is unit-tested without binding a port:
 
 ```bash
-cd main/kivo-server
+cd main/nilo-server
 pytest -q tests/robot/test_protocol.py tests/core/test_ws_path_gate.py tests/core/test_http_routes.py
 ```
 

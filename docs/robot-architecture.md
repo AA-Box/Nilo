@@ -1,6 +1,6 @@
 # Robot architecture
 
-The target architecture for the Kivo robot subsystem: what the layers are, where each one
+The target architecture for the Nilo robot subsystem: what the layers are, where each one
 attaches to the server that exists today, and the rules that keep a language model away
 from a motor.
 
@@ -11,7 +11,7 @@ label in front of it:
 
 | Layer | Status | Where it is |
 |---|---|---|
-| Device Protocol | **Implemented** | `main/kivo-server/robot/protocol/` — route registry for the `kivo` and `legacy_xiaozhi` protocols, plus the inherited session server in `core/` |
+| Device Protocol | **Implemented** | `main/nilo-server/robot/protocol/` — route registry for the `nilo` protocol, plus the inherited session server in `core/` |
 | Perception / Audio | **Implemented** (as a voice pipeline, not yet as robot perception) | `core/providers/vad/`, `core/providers/asr/`, `core/handle/receiveAudioHandle.py` |
 | Agent | **Implemented** (as a chat agent, not yet as an embodied one) | `core/providers/llm/`, `core/providers/tools/`, `core/connection.py` |
 | Perception / Vision | **Experimental** | `core/api/vision_handler.py`, `core/providers/vllm/` — one-shot image explanation, no tracking, no coordinates |
@@ -22,7 +22,7 @@ label in front of it:
 | Action Executor | **Planned** | nothing in the tree |
 | Safety | **Planned** | nothing in the tree |
 
-Concretely: `main/kivo-server/robot/` contains exactly one package today,
+Concretely: `main/nilo-server/robot/` contains exactly one package today,
 `robot/protocol/`, and one test module, `tests/robot/test_protocol.py`. There is no actions
 package, no behaviour engine, no world model, no simulator and no safety policy. Nothing
 here is running code unless it is marked **Implemented**. Planned module paths below are
@@ -62,7 +62,7 @@ flowchart TB
         MOT["Deterministic motion layer<br/>trajectories · accel limits<br/>cliff &amp; collision · watchdog · e-stop"]
         SENS["Microphones · camera · IMU · cliff &amp; bump sensors"]
     end
-    subgraph server["kivo-server process"]
+    subgraph server["nilo-server process"]
         DP["Device Protocol<br/><i>Implemented</i>"]
         subgraph perc["Perception"]
             PA["Audio<br/><i>Implemented</i>"]
@@ -251,15 +251,18 @@ JSON control messages and binary Opus audio, bootstrapped over HTTP.
 
 This is real code. `robot/protocol/base.py` defines `ProtocolSpec` (a frozen pydantic model
 of one protocol's WebSocket path, OTA path and enabled flag) and `ProtocolRegistry`, built
-from the `protocols:` block of `config.yaml` by `registry_from_config`. Two specs are
-registered: `KIVO` in `robot/protocol/kivo.py` (`/kivo/v1/`, `/kivo/ota/`) and
-`LEGACY_XIAOZHI` in `robot/protocol/legacy_xiaozhi.py`, the routes baked into existing
-ESP32 firmware. The registry is the single source of routes for four call sites —
-`core/websocket_server.py` gates the WebSocket handshake with `ProtocolRegistry.ws_accepts`,
+from the `protocols:` block of `config.yaml` by `registry_from_config`. Exactly one spec is
+registered — `NILO` in `robot/protocol/nilo.py` (`/nilo/v1/`, `/nilo/ota/`, and firmware
+downloads at `/nilo/ota/download/{filename}`), so `ALL_PROTOCOLS == (NILO,)`. The registry is
+the single source of routes for four call sites — `core/websocket_server.py` gates the
+WebSocket handshake with `ProtocolRegistry.ws_accepts`,
 `core/http_server.py` registers OTA routes once per enabled protocol,
 `core/api/ota_handler.py` builds the WebSocket URL it hands each device with
-`ProtocolRegistry.ws_url`, and `app.py` logs the endpoints. `legacy_xiaozhi.py` also carries `RESERVED_MESSAGE_TYPES`, the JSON `type` values
-already in use on the wire, so a new Kivo message type cannot silently collide.
+`ProtocolRegistry.ws_url`, and `app.py` logs the endpoints. `ProtocolRegistry.strict`
+defaults to true (config `protocols.strict`, shipped true), so a WebSocket path matching no
+spec is refused with a 404 rather than accepted: a route this server does not serve is
+genuinely unreachable. `nilo.py` also carries `RESERVED_MESSAGE_TYPES`, the JSON `type` values
+already in use on the wire, so a new Nilo message type cannot silently collide.
 
 Robot work adds typed models for robot messages, a version field, explicit acks, and a device
 registry that outlives a single connection (R1). Session-level pieces go in robot/devices.
@@ -358,7 +361,7 @@ flowchart LR
     end
 
     BR["plugins/robot_bridge<br/>the only module importing both sides"]
-    ROBOT["robot/ (Kivo-owned)"]
+    ROBOT["robot/ (Nilo-owned)"]
     MOT["Deterministic motion layer<br/>(firmware)"]
 
     FW -- "ws :8000" --> WS
@@ -381,7 +384,7 @@ flowchart LR
 with no `isinstance` check, so a robot-owned enum member works and
 `core/handle/textMessageType.py` needs no edit. Register exactly **one** type with an
 internal `op` field: one key is one collision surface against future upstream types, and
-`RESERVED_MESSAGE_TYPES` in `robot/protocol/legacy_xiaozhi.py` says which names are
+`RESERVED_MESSAGE_TYPES` in `robot/protocol/nilo.py` says which names are
 already taken. Constraints: the handler must `asyncio.create_task` immediately and return
 (R3), and must refresh `conn.last_activity_time` (R2). Telemetry only — R4 means this path
 may not carry a safety-critical command.
@@ -521,7 +524,7 @@ R12 in detail:
   config file it raises `FileNotFoundError` from `config/settings.py:check_config_file`, so
   importing any of those modules fails outright. **robot/ must be importable without a
   local config file, and must never call `setup_logging()` at module scope** —
-  `tests/conftest.py` already points `KIVO_CONFIG` at a committed fixture so the suite runs
+  `tests/conftest.py` already points `NILO_CONFIG` at a committed fixture so the suite runs
   without one.
 * `scan_plugins()` swallows import exceptions behind a print, and plugin registration
   reflects over module namespaces with no de-duplication (`plugins/__init__.py`,
@@ -536,7 +539,7 @@ R12 in detail:
 ## 7. Layering and import rules
 
 `robot/` depends on `core/` at exactly one place — an adapter in robot/devices, imported
-lazily. Today the traffic runs the other way: `core/websocket_server.py`,
+lazily. Today the traffic runs the other way: `app.py`, `core/websocket_server.py`,
 `core/http_server.py` and `core/api/ota_handler.py` import `robot.protocol`, and
 `config/logger.py` imports `robot.__version__`. That stays acyclic only because
 `robot/protocol/` has no `core/` import at all, and because nothing under `robot/` may
@@ -549,7 +552,7 @@ flowchart TB
         CH["connection · websocket_server · http_server"]
         TOOLS["providers/tools/* · providers/{llm,tts,asr,vad,vllm}"]
     end
-    subgraph robotside["robot/ — Kivo-owned"]
+    subgraph robotside["robot/ — Nilo-owned"]
         PROTO["protocol (leaf)"]
         EV["events"]
         ST["state"]
@@ -593,7 +596,7 @@ flowchart TB
 Safety sits **below** behaviour and personality on purpose: personality may influence which
 action is chosen, never whether it is allowed.
 
-The rules are meant to be enforced mechanically, not by review. `main/kivo-server/.ruff.toml`
+The rules are meant to be enforced mechanically, not by review. `main/nilo-server/.ruff.toml`
 already documents the two-tier plan — a bug-only floor for the whole tree, and a stricter
 `robot/` configuration layered on top — and `mypy.ini` is already strict for `robot.*` and
 ignores the untyped inherited tree. A banned-import rule expressing the table above is a
@@ -630,21 +633,22 @@ roadmap item ([robot-roadmap.md](robot-roadmap.md), Phase 0). See
 
 Stated so that nothing here is an undocumented assumption.
 
-1. **Almost none of this exists.** `main/kivo-server/robot/` contains `robot/protocol/` and
+1. **Almost none of this exists.** `main/nilo-server/robot/` contains `robot/protocol/` and
    nothing else. The four seams in §4 were each verified against the current source, but no
    code uses them yet.
 2. **Robot firmware speaks the device MCP tool protocol.** The whole actuation path
    (seam ②) assumes the device registers its robot capabilities as MCP tools. If it does
    not, the fallback is a robot-owned WebSocket on its own port — not a new message type on
    the device port, which inherits R4.
-3. **The device MCP argument type system is narrow.** Xiaozhi-family firmware exposes only
-   boolean, integer and string tool arguments, with no floats and no enums. This is a
+3. **The device MCP argument type system is narrow.** The ESP32 firmware families this
+   channel targets expose only boolean, integer and string tool arguments, with no floats
+   and no enums. This is a
    firmware property and cannot be verified from this repository; if it holds, every
    physical quantity must be an integer with its unit in the parameter name, and allowed
    string values must be enumerated in the tool description. [protocol.md](protocol.md)
    and [mcp.md](mcp.md) record what the server side actually enforces.
 4. **The robot message type is free.** `RESERVED_MESSAGE_TYPES` in
-   `robot/protocol/legacy_xiaozhi.py` lists the names already used on the wire; `robot` is
+   `robot/protocol/nilo.py` lists the names already used on the wire; `robot` is
    not among them, and both ends degrade gracefully on an unknown type — the server logs at
    error level and drops (`core/handle/textMessageProcessor.py`). Compatibility with
    ordinary voice clients is therefore preserved by construction.

@@ -1,12 +1,12 @@
 # Providers
 
-A **provider** is a swappable adapter behind one stage of the conversation pipeline. kivo-server
+A **provider** is a swappable adapter behind one stage of the conversation pipeline. nilo-server
 has seven pluggable stages — VAD, ASR, LLM, VLLM (vision), TTS, Memory, Intent — plus a tool
 system whose executors are also kept under `core/providers/`.
 
 Every adapter on this page is **Implemented**: it exists in the tree today and is reachable from
 configuration. Every adapter is also **inherited** from the upstream snapshot the repository was
-forked from (see [upstream.md](upstream.md)); Kivo has added no provider of its own so far. The
+forked from (see [upstream.md](upstream.md)); Nilo has added no provider of its own so far. The
 robot domain (actions, behaviour, world model, embodied memory, simulator, safety policy) has no
 providers at all — only `robot/protocol/` exists. See [robot-architecture.md](robot-architecture.md)
 and [robot-roadmap.md](robot-roadmap.md).
@@ -49,7 +49,7 @@ Consequences of that mechanism, all worth knowing before debugging a provider:
   `core/providers/tts/default.py:DefaultTTS`, which is never selected by config (see the TTS table).
 * **The lookup is a filesystem check relative to the working directory**
   (`os.path.exists(os.path.join('core', 'providers', ...))`), so the server must be started from
-  `main/kivo-server/`. A wrong `type` raises `ValueError: Unsupported <KIND> type: ...`.
+  `main/nilo-server/`. A wrong `type` raises `ValueError: Unsupported <KIND> type: ...`.
 * **Type values are case-sensitive filenames.** `type: AliBL` resolves to
   `core/providers/llm/AliBL/AliBL.py`; `alibl` would not resolve.
 * **VAD, ASR, LLM, Memory and Intent are constructed once per process**, in
@@ -276,7 +276,7 @@ told what your knowledge base or search scope contains.
 
 ## What the tests exercise
 
-`make test` (equivalently `cd main/kivo-server && python -m pytest -q`) runs 126 tests in about a
+`make test` (equivalently `cd main/nilo-server && python -m pytest -q`) runs 126 tests in about a
 second. **No test opens a network connection, and none needs a provider credential.** Provider
 coverage is deliberately thin:
 

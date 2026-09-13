@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Something in kivo-server does not behave as documented
+about: Something in nilo-server does not behave as documented
 title: "[bug] "
 labels: bug
 assignees: ''
@@ -20,11 +20,10 @@ assignees: ''
 
 ## Environment
 
-- kivo-server version / commit:
-- How it runs: `python app.py` / Docker (`ghcr.io/aa-box/kivo-server:<tag>`)
+- nilo-server version / commit:
+- How it runs: `python app.py` / Docker (`ghcr.io/aa-box/nilo-server:<tag>`)
 - Python version (if not Docker):
-- Client: robot firmware / Xiaozhi-compatible device / other (which?)
-- Protocol route used: `/kivo/v1/` or `/xiaozhi/v1/`
+- Client: robot firmware / simulator / other (which?)
 - Selected modules (`selected_module` block, secrets removed):
 
 ## Logs

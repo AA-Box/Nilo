@@ -1,15 +1,15 @@
 # Safety
 
-Kivo is a backend for robots that move. This page separates what the code does **today**
+Nilo is a backend for robots that move. This page separates what the code does **today**
 from what the design **intends to do later**, because confusing the two is itself a safety
 problem.
 
 Read the split literally:
 
-* [Implemented today](#implemented-today) — behaviour you can find in `main/kivo-server`
-  right now. It is all *session* safety: who may connect, which secrets are usable, which
-  files may be downloaded, and how long anything is allowed to take. There is no actuation
-  in this code path, so none of it is motion safety.
+* [Implemented today](#implemented-today) — behaviour you can find in `main/nilo-server`
+  right now. It is all *session* safety: who may connect and on which paths, which secrets
+  are usable, which files may be downloaded, and how long anything is allowed to take.
+  There is no actuation in this code path, so none of it is motion safety.
 * [Planned](#planned) — the motion-safety design. **None of it exists in the tree.** The
   only `robot/` code that exists is `robot/protocol/`; there is no `robot/safety/`,
   `robot/actions/`, `robot/state/`, watchdog, or emergency stop. Do not connect a machine
@@ -63,12 +63,12 @@ place gets a one-line text notice and is closed.
 
 ```mermaid
 flowchart TD
-    A["Device: POST /kivo/ota/"] --> B{"server.auth.enabled?"}
+    A["Device: POST /nilo/ota/"] --> B{"server.auth.enabled?"}
     B -- no --> C["websocket.token = ''"]
     B -- yes --> D{"device-id in allowed_devices?"}
     D -- yes --> C
     D -- no --> E["AuthManager.generate_token(client_id, device_id)"]
-    C --> F["Device opens ws://host:8000/kivo/v1/"]
+    C --> F["Device opens ws://host:8000/nilo/v1/"]
     E --> F
     F --> G{"auth.enabled?"}
     G -- no --> H["ConnectionHandler"]
@@ -116,7 +116,7 @@ These are properties of the current code, not recommendations:
 ## Placeholder detection
 
 The shipped `config.yaml` contains fill-me-in values such as
-`ws://<your-host-or-domain>:<port>/kivo/v1/`. `config/placeholders.py:is_placeholder`
+`ws://<your-host-or-domain>:<port>/nilo/v1/`. `config/placeholders.py:is_placeholder`
 treats any string containing `<your` — or the legacy marker `你` inherited from the
 upstream config — as unset, so an unedited template is never used as a real secret or URL.
 
@@ -173,7 +173,7 @@ in order in `core/api/ota_handler.py:OTAHandler.handle_download`:
 The `realpath` step is what makes this a sandbox rather than a string filter: a symlink
 inside `data/bin` pointing outside it is rejected, not followed. Note that `bin_dir` is
 `os.path.join(os.getcwd(), "data", "bin")`, so it follows the working directory the server
-was started from — run `python app.py` from `main/kivo-server`, as
+was started from — run `python app.py` from `main/nilo-server`, as
 [deployment.md](deployment.md) describes.
 
 The download route is **not** authenticated. Only `.bin` files you deliberately place in
@@ -181,20 +181,29 @@ The download route is **not** authenticated. Only `.bin` files you deliberately 
 
 ## Protocol route gating
 
-Every device-facing route comes from the protocol registry
+Every protocol route comes from the protocol registry
 (`robot/protocol/base.py:ProtocolRegistry`), so disabling a protocol removes its routes
-rather than hiding them. See [protocol.md](protocol.md).
+rather than hiding them. There is one protocol, `nilo`: WebSocket `/nilo/v1/`, OTA
+`/nilo/ota/` and `/nilo/ota/download/{filename}`. The vision endpoint is not protocol-scoped
+and is registered once whatever the `protocols` block says. See [protocol.md](protocol.md).
 
 | `protocols` config | WebSocket path that matches an enabled protocol | Path that matches a disabled protocol | Unknown path |
 |---|---|---|---|
-| `strict: false` (shipped default) | accepted | rejected, HTTP 404 | accepted |
-| `strict: true` | accepted | rejected, HTTP 404 | rejected, HTTP 404 |
+| `strict: true` (shipped default) | accepted | rejected, HTTP 404 | rejected, HTTP 404 |
+| `strict: false` | accepted | rejected, HTTP 404 | accepted |
 
 The decision is `ProtocolRegistry.ws_accepts`, called from
 `core/websocket_server.py:WebSocketServer._http_response` during the handshake, before any
 connection state is built. A plain HTTP request to the WebSocket port (no `Upgrade`) gets a
-200 liveness line instead. Setting `protocols.strict: true` and disabling
-`legacy_xiaozhi` is the tightest configuration the current code offers.
+200 liveness line instead.
+
+**Strict rejection is what makes a retired route actually gone.** `ProtocolRegistry.strict`
+defaults to `true` (`config.yaml`, `protocols.strict`), so a path no enabled protocol claims
+is refused with a 404 at the handshake rather than opening a session on an unrouted path —
+a device aimed at an address this server does not serve fails immediately and visibly.
+`tests/robot/test_protocol.py` and `tests/core/test_ws_path_gate.py` assert that retired and
+unknown paths stay rejected. Setting `protocols.strict: false` restores the old permissive
+behaviour, and is the only switch that widens this surface.
 
 ## Timeouts and resource bounds
 
@@ -275,7 +284,7 @@ per-device daily TTS-character counter (`core/utils/output_counter.py`, checked 
 `core/handle/receiveAudioHandle.py`), and it is dormant in any standalone deployment:
 `conn.max_output_size` stays 0 unless the deprecated remote config supplies
 `device_max_output_size` (`core/connection.py`). It bounds characters spoken per day, not
-request rate, so it is no substitute either way. Put Kivo behind a reverse proxy that
+request rate, so it is no substitute either way. Put Nilo behind a reverse proxy that
 enforces limits if it is reachable from anywhere you do not control. See [deployment.md](deployment.md).
 
 ---
@@ -290,7 +299,7 @@ it should be described as working.
 
 ```mermaid
 flowchart TB
-    subgraph BE["Backend — kivo-server (policy, not guarantee)"]
+    subgraph BE["Backend — nilo-server (policy, not guarantee)"]
         LLM["LLM / behaviour / API request"] --> V["robot/safety: validate + clamp<br/>bounds, allow-list, rate limit"]
         V -->|reject| R["typed rejection to the caller"]
         V -->|accept| Q["robot/actions: queue, resource claims"]

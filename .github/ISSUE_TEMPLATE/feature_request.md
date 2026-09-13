@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Propose a capability for Kivo
+about: Propose a capability for Nilo
 title: "[feature] "
 labels: enhancement
 assignees: ''

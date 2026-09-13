@@ -1,16 +1,16 @@
 # MCP
 
-kivo-server speaks the Model Context Protocol (JSON-RPC 2.0) in three different directions,
+nilo-server speaks the Model Context Protocol (JSON-RPC 2.0) in three different directions,
 and folds all of them into a single OpenAI-style function list that the LLM sees.
 
 | Direction | Who hosts the MCP server | Transport | Status |
 |---|---|---|---|
 | **Device MCP** | the connected device (robot / ESP32 firmware) | JSON-RPC tunnelled inside the existing device WebSocket session | Implemented |
-| **MCP endpoint** | an external broker service | a second WebSocket that kivo-server dials per device connection | Implemented |
+| **MCP endpoint** | an external broker service | a second WebSocket that nilo-server dials per device connection | Implemented |
 | **Server MCP** | local or remote MCP servers listed in `data/.mcp_server_settings.json` | stdio subprocess, SSE, or Streamable HTTP | Implemented |
 
 A fourth MCP-adjacent surface is the **vision endpoint** (`/mcp/vision/explain`): not MCP
-itself, but the device reaches it with a token that kivo-server hands over inside the MCP
+itself, but the device reaches it with a token that nilo-server hands over inside the MCP
 `initialize` message.
 
 The robot action layer described at the end of this page (`move`, `look_at`, …) is
@@ -29,7 +29,7 @@ Every tool source is an implementation of `ToolExecutor`
 |---|---|---|---|
 | `SERVER_PLUGIN` | `ServerPluginExecutor` | the `@register_function` registry in `plugins/register.py` | no |
 | `SERVER_MCP` | `ServerMCPExecutor` | `data/.mcp_server_settings.json` | yes |
-| `DEVICE_IOT` | `DeviceIoTExecutor` | legacy `iot` descriptors sent by the device | no |
+| `DEVICE_IOT` | `DeviceIoTExecutor` | the `iot` descriptors sent by the device | no |
 | `DEVICE_MCP` | `DeviceMCPExecutor` | the device's own `tools/list` | yes |
 | `MCP_ENDPOINT` | `MCPEndpointExecutor` | the `mcp_endpoint` broker's `tools/list` | yes |
 
@@ -112,7 +112,7 @@ message type (`core/handle/textMessageType.py:TextMessageType.MCP`) to
 `core/handle/textHandler/mcpMessageHandler.py:McpTextMessageHandler.handle`, which hands the
 payload to `handle_mcp_message` in a fire-and-forget `asyncio.create_task` — MCP traffic never
 blocks the receive loop. `mcp` is one of the reserved wire-level message types listed in
-`robot/protocol/legacy_xiaozhi.py:RESERVED_MESSAGE_TYPES`; see [protocol.md](protocol.md).
+`robot/protocol/nilo.py:RESERVED_MESSAGE_TYPES`; see [protocol.md](protocol.md).
 
 ### 2.2 Initialization
 
@@ -125,7 +125,7 @@ it has the server hello.
 ```mermaid
 sequenceDiagram
     participant D as Device
-    participant S as kivo-server
+    participant S as nilo-server
     D->>S: hello {features:{mcp:true}}
     S->>D: hello (welcome_msg)
     S->>D: mcp: initialize (id 1)
@@ -151,7 +151,7 @@ sequenceDiagram
 | `params.capabilities.roots` | `{"listChanged": true}` |
 | `params.capabilities.sampling` | `{}` |
 | `params.capabilities.vision` | `{"url": <vision URL>, "token": <JWT>}` — see [§4](#4-vision-over-mcp) |
-| `params.clientInfo` | `{"name": "kivo-server", "version": "1.0.0"}` |
+| `params.clientInfo` | `{"name": "nilo-server", "version": "1.0.0"}` |
 
 The `clientInfo.name` is one of the few places the product name legitimately appears on the
 wire ([branding.md](branding.md)). Note what is **not** sent: there is no `withUserTools`
@@ -174,7 +174,7 @@ For each entry in `result.tools`, `handle_mcp_message` keeps exactly three field
 * `inputSchema` — rebuilt as `{"type": schema.type or "object", "properties": schema.properties
   or {}, "required": [only string entries]}`.
 
-Everything else in the schema is dropped. kivo-server itself imposes **no restriction on
+Everything else in the schema is dropped. nilo-server itself imposes **no restriction on
 argument types** — whatever JSON Schema `properties` object the device sends is forwarded to
 the LLM unchanged. Any narrower type system (integers-only, no nested objects, page-size caps
 on `tools/list`) is a property of the device firmware, not of this server, and is not
@@ -251,7 +251,7 @@ That is what reaches the LLM.
 * otherwise returns `Action.REQLLM` with the raw result;
 * maps `ValueError` to `NOTFOUND` and every other exception to `ERROR`.
 
-Note that kivo-server never injects `device_id` into tool arguments, and the LLM cannot supply it
+Note that nilo-server never injects `device_id` into tool arguments, and the LLM cannot supply it
 either: `core/utils/prompt_manager.py` hands `device_id` to the template renderer, but the shipped
 template (`agent-base-prompt.txt`) never references it, so it never reaches the prompt. A device
 tool that needs its own id has to know it firmware-side.
@@ -299,7 +299,7 @@ Lifecycle:
 * `ServerMCPExecutor.execute` strips a leading `mcp_` from the tool name before dispatch and
   returns `Action.REQLLM` with `str(result)` — the raw SDK `CallToolResult`, stringified.
 * `logging_callback` and `progress_callback` forward server logs and progress into the
-  kivo-server log at INFO.
+  nilo-server log at INFO.
 * `UnifiedToolHandler.cleanup` calls `ServerMCPExecutor.cleanup`, which closes every client
   with a 20 s timeout per client.
 
@@ -319,8 +319,8 @@ POSTs it over HTTP, so image bytes never travel through the audio session.
 ```mermaid
 sequenceDiagram
     participant D as Device
-    participant WS as kivo-server (WebSocket)
-    participant HTTP as kivo-server (HTTP :8003)
+    participant WS as nilo-server (WebSocket)
+    participant HTTP as nilo-server (HTTP :8003)
     participant V as VLLM provider
     WS->>D: mcp initialize, capabilities.vision {url, token}
     Note over D: LLM calls self.camera.take_photo
@@ -350,8 +350,8 @@ the derived `http://<local ip>:<http_port>/...` form — it never consults `serv
 
 **The endpoint** is registered unconditionally — with or without `read_config_from_api` —
 as GET/POST/OPTIONS `/mcp/vision/explain` (`core/http_server.py:SimpleHttpServer._build_app`,
-asserted by `tests/core/test_http_routes.py`). This path predates the Kivo route scheme and is
-not one of the `/kivo/...` device routes.
+asserted by `tests/core/test_http_routes.py`). This path predates the Nilo route scheme and is
+not one of the `/nilo/...` device routes.
 
 `core/api/vision_handler.py:VisionHandler.handle_post` enforces, in order:
 
@@ -380,7 +380,7 @@ curl http://localhost:8003/mcp/vision/explain
 ## 5. MCP endpoint
 
 **Status: Implemented.** The endpoint is an external broker: instead of the device hosting
-tools, kivo-server dials a WebSocket that fronts somebody else's MCP server.
+tools, nilo-server dials a WebSocket that fronts somebody else's MCP server.
 
 Enabled by the top-level config key `mcp_endpoint` (`config.yaml`). It is ignored when empty,
 equal to `"null"`, or still a placeholder (`config/placeholders.py:is_placeholder`, which
@@ -401,7 +401,7 @@ Connection flow, per device connection, in
 1. `websockets.connect(url)`; the client is stored as `conn.mcp_endpoint_client`.
 2. A background `_message_listener` task starts; it sets `ready = False` when the socket closes.
 3. `initialize` (id 1) — same `protocolVersion` `2024-11-05` and
-   `clientInfo {"name": "kivo-server", "version": "1.0.0"}` as the device channel, but
+   `clientInfo {"name": "nilo-server", "version": "1.0.0"}` as the device channel, but
    **without** the `vision` capability.
 4. `notifications/initialized` (a notification, no id).
 5. `tools/list` (id 2), with the same `nextCursor` pagination, name sanitizing, description
@@ -469,9 +469,9 @@ Two caveats worth knowing when debugging:
 | `selected_module.VLLM` | `config.yaml` | vision model used by `/mcp/vision/explain` |
 | `data/.mcp_server_settings.json` | file | server-side MCP servers (`mcpServers` object only) |
 
-None of these have a `KIVO_` environment override; only `KIVO_CONFIG`, `KIVO_SERVER_HOST`,
-`KIVO_SERVER_PORT`, `KIVO_HTTP_PORT` and `KIVO_LOG_LEVEL` exist. See
-[configuration.md](configuration.md).
+Of these, only `server.http_port` has an environment override (`NILO_HTTP_PORT`); the complete
+set is `NILO_CONFIG`, `NILO_SERVER_HOST`, `NILO_SERVER_PORT`, `NILO_HTTP_PORT` and
+`NILO_LOG_LEVEL`. See [configuration.md](configuration.md).
 
 ---
 
@@ -503,7 +503,7 @@ are worth stating now because they are cheap to honour and expensive to retrofit
   collide with tools from the other four sources — `ToolManager` resolves collisions silently
   except for a WARNING line.
 
-Until that layer exists, a robot built on Kivo can already move: a device that exposes motion
+Until that layer exists, a robot built on Nilo can already move: a device that exposes motion
 tools through its own MCP server gets them called by the LLM exactly like any other device
 tool, with **no validation beyond the JSON Schema the device itself published**.
 

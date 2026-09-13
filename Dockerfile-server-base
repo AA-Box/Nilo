@@ -1,5 +1,5 @@
-# kivo-server base image: system libraries + Python dependencies.
-# Rebuilt only when main/kivo-server/requirements.txt changes (see .github/workflows/build-base-image.yml).
+# nilo-server base image: system libraries + Python dependencies.
+# Rebuilt only when main/nilo-server/requirements.txt changes (see .github/workflows/build-base-image.yml).
 FROM python:3.12-slim
 
 RUN apt-get update && \
@@ -12,9 +12,9 @@ ENV LANG=C.UTF-8 \
     PYTHONIOENCODING=utf-8 \
     PIP_DEFAULT_TIMEOUT=120
 
-WORKDIR /opt/kivo-server
+WORKDIR /opt/nilo-server
 
-COPY main/kivo-server/requirements.txt .
+COPY main/nilo-server/requirements.txt .
 
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt --retries 5

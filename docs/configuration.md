@@ -1,10 +1,10 @@
 # Configuration
 
-Everything kivo-server does at runtime is driven by one merged configuration dictionary.
+Everything nilo-server does at runtime is driven by one merged configuration dictionary.
 This page describes where that dictionary comes from and what each key means.
 
 Unless stated otherwise, every key below is **Implemented**: it is either shipped in
-`main/kivo-server/config.yaml` or read by code in `main/kivo-server/`. A key marked
+`main/nilo-server/config.yaml` or read by code in `main/nilo-server/`. A key marked
 **code only** ships no default value: it takes effect only if you add it to your override
 file. Those keys are collected in
 [the reference table](#reference-keys-read-by-code-but-not-shipped-in-configyaml) at the
@@ -20,8 +20,8 @@ configuration that exists today is the `protocols:` block described below. See
 ```mermaid
 flowchart TD
     A["config.yaml<br/>shipped defaults, read-only"] --> M{{"merge_configs()<br/>recursive, override wins per key"}}
-    B["$KIVO_CONFIG<br/>default: data/.config.yaml<br/>your overrides + secrets"] --> M
-    M --> E["apply_env_overrides()<br/>KIVO_* environment variables"]
+    B["$NILO_CONFIG<br/>default: data/.config.yaml<br/>your overrides + secrets"] --> M
+    M --> E["apply_env_overrides()<br/>NILO_* environment variables"]
     E --> D["ensure_directories()<br/>creates log_dir and provider output_dir"]
     D --> C[("in-process config cache<br/>CacheType.CONFIG / main_config")]
     C --> S["WebSocketServer, SimpleHttpServer,<br/>every per-connection handler"]
@@ -29,9 +29,9 @@ flowchart TD
 
 | Layer | Path | Notes |
 |---|---|---|
-| Shipped defaults | `main/kivo-server/config.yaml` | Read-only reference. Do not edit; your changes are lost on every upgrade. |
-| User overrides | `data/.config.yaml` under the server directory, or the file named by `KIVO_CONFIG` | Git-ignored. Must exist (an empty file is fine) or startup aborts. |
-| Environment | `KIVO_*` variables | Applied last, so they win over both files. |
+| Shipped defaults | `main/nilo-server/config.yaml` | Read-only reference. Do not edit; your changes are lost on every upgrade. |
+| User overrides | `data/.config.yaml` under the server directory, or the file named by `NILO_CONFIG` | Git-ignored. Must exist (an empty file is fine) or startup aborts. |
+| Environment | `NILO_*` variables | Applied last, so they win over both files. |
 
 Layering is implemented in `config/config_loader.py:load_config`. The merge is recursive and
 per key (`config/config_loader.py:merge_configs`), so your override file only needs the keys
@@ -49,37 +49,22 @@ beyond `data/` itself.
 ## Environment variables
 
 These five are the complete set. They are defined in `config/config_loader.py` (`ENV_OVERRIDES`
-plus `custom_config_path`) and covered by `tests/config/test_kivo_config.py`.
+plus `custom_config_path`) and covered by `tests/config/test_nilo_config.py`.
 
 | Variable | Maps to config key | Type | Default when unset |
 |---|---|---|---|
-| `KIVO_CONFIG` | — (selects the override *file*) | path | `<server dir>/data/.config.yaml` |
-| `KIVO_SERVER_HOST` | `server.ip` | string | `0.0.0.0` from `config.yaml` |
-| `KIVO_SERVER_PORT` | `server.port` | int (`int(raw)`) | `8000` from `config.yaml` |
-| `KIVO_HTTP_PORT` | `server.http_port` | int (`int(raw)`) | `8003` from `config.yaml` |
-| `KIVO_LOG_LEVEL` | `log.log_level` | string | `INFO` from `config.yaml` |
+| `NILO_CONFIG` | — (selects the override *file*) | path | `<server dir>/data/.config.yaml` |
+| `NILO_SERVER_HOST` | `server.ip` | string | `0.0.0.0` from `config.yaml` |
+| `NILO_SERVER_PORT` | `server.port` | int (`int(raw)`) | `8000` from `config.yaml` |
+| `NILO_HTTP_PORT` | `server.http_port` | int (`int(raw)`) | `8003` from `config.yaml` |
+| `NILO_LOG_LEVEL` | `log.log_level` | string | `INFO` from `config.yaml` |
 
 Rules enforced by `config/config_loader.py:apply_env_overrides`:
 
-* An unset **or empty** variable is ignored, so `KIVO_SERVER_PORT=""` keeps the file value.
+* An unset **or empty** variable is ignored, so `NILO_SERVER_PORT=""` keeps the file value.
 * `port` and `http_port` are converted with `int()`; a non-numeric value raises `ValueError` at
   startup. The other two are used as strings.
 * The target section is created if the merged config does not have it.
-
-## Deprecated key alias
-
-`config/config_loader.py` defines `DEPRECATED_KEYS = {"xiaozhi": "hello"}`. The top-level
-`xiaozhi:` block — the server hello message in the inherited configuration — is now spelled
-`hello:`. `apply_deprecated_aliases` runs on each layer *before* the merge, so an override file
-still written with the old key overrides the shipped `hello:` block instead of sitting beside it.
-
-| Situation | Behaviour | Log line |
-|---|---|---|
-| Only `xiaozhi:` present | Renamed to `hello:` | `config key 'xiaozhi' is deprecated; rename it to 'hello'` (WARNING) |
-| Both present | `xiaozhi:` dropped, `hello:` kept | `config key 'xiaozhi' is deprecated and ignored because 'hello' is also set` (WARNING) |
-
-"Xiaozhi" survives here, in the `legacy_xiaozhi` protocol and in provenance only; see
-[branding.md](branding.md) and [upstream.md](upstream.md).
 
 ## Placeholders
 
@@ -110,7 +95,7 @@ Block: `server:` in `config.yaml`. Both listeners run as asyncio tasks in the si
 | `server.ip` | `0.0.0.0` | `core/websocket_server.py:WebSocketServer.start`, `core/http_server.py:SimpleHttpServer.start` | Bind address for both listeners |
 | `server.port` | `8000` | `core/websocket_server.py:WebSocketServer.start`, and `core/api/ota_handler.py` for the URL it advertises | WebSocket session port |
 | `server.http_port` | `8003` | `core/http_server.py:SimpleHttpServer.start`, `core/utils/util.py:get_vision_url` | HTTP port: OTA bootstrap, firmware download, vision endpoint |
-| `server.websocket` | `ws://<your-host-or-domain>:<port>/kivo/v1/` (placeholder) | `core/api/ota_handler.py`, `core/http_server.py` | WebSocket URL **advertised to devices** in the OTA response |
+| `server.websocket` | `ws://<your-host-or-domain>:<port>/nilo/v1/` (placeholder) | `core/api/ota_handler.py`, `core/http_server.py` | WebSocket URL **advertised to devices** in the OTA response |
 | `server.vision_explain` | `http://<your-host-or-domain>:<port>/mcp/vision/explain` (placeholder) | `core/utils/util.py:get_vision_url` | Vision endpoint URL advertised to devices; also the base for firmware download URLs |
 | `server.timezone_offset` | `+8` | `core/api/ota_handler.py:OTAHandler.handle_post` | Sent to devices as `server_time.timezone_offset`, multiplied by 60 (minutes) |
 | `server.mqtt_gateway` | `null` | `core/api/ota_handler.py:OTAHandler.handle_post` | When set (`host:port`), OTA returns an `mqtt` block instead of a `websocket` block |
@@ -134,19 +119,19 @@ and [protocol.md](protocol.md).
 ## Protocols
 
 Block: `protocols:` in `config.yaml`, parsed by `robot/protocol/base.py:ProtocolRegistry.from_config`
-via `robot/protocol/__init__.py:registry_from_config`. Each protocol owns one WebSocket route and
-one OTA route; both are enabled by default.
+via `robot/protocol/__init__.py:registry_from_config`. There is exactly one protocol — `nilo`,
+the only entry in `robot/protocol/__init__.py:ALL_PROTOCOLS` — and it owns one WebSocket route
+and one OTA route. It is enabled by default.
 
 | Key | Default | Routes |
 |---|---|---|
-| `protocols.kivo.enabled` | `true` | `/kivo/v1/` (WebSocket), `/kivo/ota/` + `/kivo/ota/download/{filename}` (HTTP) |
-| `protocols.legacy_xiaozhi.enabled` | `true` | `/xiaozhi/v1/`, `/xiaozhi/ota/` + `/xiaozhi/ota/download/{filename}` — the paths baked into existing ESP32 firmware |
-| `protocols.strict` | `false` | `true` rejects WebSocket connections whose path matches no enabled protocol; `false` accepts unknown paths. A path belonging to a *disabled* protocol is rejected either way (`ProtocolRegistry.ws_accepts`) |
+| `protocols.nilo.enabled` | `true` | `/nilo/v1/` (WebSocket), `/nilo/ota/` + `/nilo/ota/download/{filename}` (HTTP) |
+| `protocols.strict` | `true` | A WebSocket path matching no known protocol is answered with `404 unknown protocol path` (`core/websocket_server.py:WebSocketServer._http_response`). Set it to `false` to accept unknown paths instead. A path belonging to a *disabled* protocol is rejected either way (`ProtocolRegistry.ws_accepts`) |
 
-The first enabled protocol in declaration order (`kivo`, then `legacy_xiaozhi`) is the *default*:
-it supplies the WebSocket URL the OTA endpoint advertises when `server.websocket` is unset
-(`robot/protocol/base.py:ProtocolRegistry.default` and `.ws_url`). Disabling both protocols
-registers no device routes at all, and `ProtocolRegistry.default()` then raises
+`nilo` is also the *default* protocol: it supplies the WebSocket URL the OTA endpoint advertises
+when `server.websocket` is unset or still a placeholder
+(`robot/protocol/base.py:ProtocolRegistry.default` and `.ws_url`).
+Disabling it registers no device routes at all, and `ProtocolRegistry.default()` then raises
 `RuntimeError: no device protocol is enabled`. Details in [protocol.md](protocol.md).
 
 ## Secrets and authentication
@@ -196,7 +181,7 @@ Block: `log:` in `config.yaml`, applied by `config/logger.py:setup_logging` on f
 |---|---|---|
 | `log.log_format` | see `config.yaml` | loguru format for stdout |
 | `log.log_format_file` | see `config.yaml` | loguru format for the log file |
-| `log.log_level` | `INFO` | Level for both sinks; also settable via `KIVO_LOG_LEVEL` |
+| `log.log_level` | `INFO` | Level for both sinks; also settable via `NILO_LOG_LEVEL` |
 | `log.log_dir` | `tmp` | Directory for the log file, created at startup |
 | `log.log_file` | `server.log` | File name inside `log_dir` |
 | `log.data_dir` | `data` | Created at startup; the directory holding `.config.yaml`, `.mcp_server_settings.json` and `bin/` |
@@ -229,12 +214,12 @@ Top-level keys, all shipped in `config.yaml`.
 | `enable_websocket_ping` | `false` | `core/handle/textHandler/pingMessageHandler.py` | Answer WebSocket-level ping messages as a keep-alive |
 | `tts_audio_send_delay` | `0` | `core/handle/sendAudioHandle.py` | Interval between outgoing audio packets. `0` tracks the audio frame rate at runtime; a positive value is a fixed delay in milliseconds. |
 | `exit_commands` | `exit`, `quit`, `goodbye` plus two legacy Chinese phrases kept from the inherited config | `core/connection.py` | Post-ASR phrases that end the conversation. Read with `config["exit_commands"]`, so the key must exist. |
-| `wakeup_words` | `hey kivo`, `hi kivo`, `hello kivo` plus the Chinese phrases emitted by wake-word models in shipped firmware | `core/handle/helloHandle.py`, `core/handle/textHandler/listenMessageHandler.py` | Recognised wake phrases, used to tell a wake-up apart from speech |
+| `wakeup_words` | `hey nilo`, `hi nilo`, `hello nilo` | `core/handle/helloHandle.py`, `core/handle/textHandler/listenMessageHandler.py` | Recognised wake phrases, used to tell a wake-up apart from speech |
 
 ### `hello:` — the server hello message
 
 `core/connection.py` copies the whole `hello:` block per connection, adds `session_id`, and sends
-it as the server's reply to the device hello. Deprecated spelling: `xiaozhi:`.
+it as the server's reply to the device hello.
 
 | Key | Default |
 |---|---|
@@ -267,7 +252,7 @@ flowchart LR
 3. The factory (`core/utils/tts.py:create_instance` and its siblings for `asr`, `llm`, `vllm`,
    `vad`, `intent`, `memory`) looks for that module under `core/providers/<kind>/` — in one of the
    two shapes below — with a **working-directory relative** `os.path.exists`, so the server must be
-   started from `main/kivo-server/`. An unknown type raises
+   started from `main/nilo-server/`. An unknown type raises
    `ValueError: Unsupported <Kind> type: ...`.
 4. `core/utils/modules_initialize.py:initialize_modules` caches each instantiated provider keyed by
    its config block, so an unchanged block is not rebuilt.
@@ -363,7 +348,7 @@ Notes that apply across blocks:
 
 | Key | Default | Read by |
 |---|---|---|
-| `prompt` | multi-line Kivo persona text | `core/connection.py` — the user-facing system prompt |
+| `prompt` | multi-line Nilo persona text | `core/connection.py` — the user-facing system prompt |
 | `prompt_template` | `agent-base-prompt.txt` | `core/utils/prompt_manager.py` — path, relative to the working directory, of the template the prompt is rendered into. A missing file logs a warning and leaves the template empty. Point it at `data/.agent-base-prompt.txt` to keep a custom copy out of the source tree. |
 | `system_error_response` | `Sorry, I am a bit busy right now. Let us try again in a moment.` | `core/utils/util.py` — spoken when the pipeline errors |
 | `end_prompt.enable` | `true` | `core/handle/receiveAudioHandle.py` |
@@ -383,7 +368,7 @@ and resets the value to the placeholder, which disables the feature.
 
 MCP *servers* the backend starts itself are configured in a separate JSON file, not in
 `config.yaml`: `core/providers/tools/server_mcp/mcp_manager.py` reads
-`<server dir>/data/.mcp_server_settings.json`. `main/kivo-server/mcp_server_settings.json` is the
+`<server dir>/data/.mcp_server_settings.json`. `main/nilo-server/mcp_server_settings.json` is the
 annotated template to copy — it documents the `mcpServers` map and the three supported transports
 (`stdio`, `sse`, `streamable-http`). The file is optional; without it no server-side MCP servers are
 started. See [mcp.md](mcp.md).
@@ -417,7 +402,7 @@ the system prompt.
 | `voiceprint.speakers` | three examples | List of `"speaker_id,name,description"` strings |
 | `voiceprint.similarity_threshold` | `0.4` | 0.0–1.0; higher is stricter |
 
-The service itself is external and is not part of kivo-server.
+The service itself is external and is not part of nilo-server.
 
 ## Context providers
 
@@ -429,7 +414,7 @@ feature is off until you fill it in.
 
 ## Deprecated: remote configuration
 
-**Deprecated.** The `manager-api` console this path served is not part of Kivo; the keys are still
+**Deprecated.** The `manager-api` console this path served is not part of Nilo; the keys are still
 honoured by `config/config_loader.py` and `config/manage_api_client.py` but nothing in this
 repository provides the API. See [migration.md](migration.md).
 
@@ -461,8 +446,8 @@ Add these to your override file when you need them.
 ## Verifying a change
 
 ```bash
-cd main/kivo-server
-python -m pytest tests/config -q      # config loader, env overrides, deprecated alias
+cd main/nilo-server
+python -m pytest tests/config -q      # config loader, env overrides, NILO_CONFIG
 python -m pytest -q                   # full suite
 python app.py                         # startup prints the resolved endpoints
 ```

@@ -1,6 +1,6 @@
 # Architecture
 
-How kivo-server works **today**. Everything on this page is **Implemented** unless a heading says
+How nilo-server works **today**. Everything on this page is **Implemented** unless a heading says
 otherwise; the final section lists the robot layers that are **Planned** and points at
 [robot-architecture.md](robot-architecture.md).
 
@@ -8,7 +8,7 @@ The backend is a single Python 3.12 asyncio process. It terminates device WebSoc
 runs a voice turn (VAD → ASR → LLM with tools → TTS) and streams Opus audio back. It also serves a
 small HTTP API for device bootstrap (OTA) and vision.
 
-Source root: `main/kivo-server/`. All paths below are relative to it.
+Source root: `main/nilo-server/`. All paths below are relative to it.
 
 ---
 
@@ -72,10 +72,10 @@ flowchart TB
 
 | Listener | Config key | Default | Serves |
 |---|---|---|---|
-| WebSocket | `server.port` (`KIVO_SERVER_PORT`) | 8000 | Device sessions on every enabled protocol's `ws_path` |
-| HTTP | `server.http_port` (`KIVO_HTTP_PORT`) | 8003 | `…/ota/`, `…/ota/download/{filename}`, `/mcp/vision/explain` |
+| WebSocket | `server.port` (`NILO_SERVER_PORT`) | 8000 | Device sessions on every enabled protocol's `ws_path` |
+| HTTP | `server.http_port` (`NILO_HTTP_PORT`) | 8003 | `/nilo/ota/`, `/nilo/ota/download/{filename}`, `/mcp/vision/explain` |
 
-Bind address is `server.ip` (`KIVO_SERVER_HOST`), default `0.0.0.0`. Neither listener is created
+Bind address is `server.ip` (`NILO_SERVER_HOST`), default `0.0.0.0`. Neither listener is created
 with TLS — terminate `wss://`/`https://` in a reverse proxy ([deployment.md](deployment.md)).
 
 Routes are not hard-coded. `robot/protocol/base.py:ProtocolRegistry` is built from the `protocols:`
@@ -83,23 +83,28 @@ config block and both servers ask it which paths exist:
 
 | Protocol | `ws_path` | `ota_path` | Defined in |
 |---|---|---|---|
-| `kivo` | `/kivo/v1/` | `/kivo/ota/` | `robot/protocol/kivo.py` |
-| `legacy_xiaozhi` | `/xiaozhi/v1/` | `/xiaozhi/ota/` | `robot/protocol/legacy_xiaozhi.py` |
+| `nilo` | `/nilo/v1/` | `/nilo/ota/` | `robot/protocol/nilo.py` |
 
-Both are enabled by default so firmware flashed against the legacy paths keeps working. The wire
-format is currently identical on both; see [protocol.md](protocol.md). `legacy_xiaozhi.py` is the
-only module allowed to spell out legacy route names ([branding.md](branding.md)).
+`nilo` is the only protocol — `robot/protocol/__init__.py:ALL_PROTOCOLS` is `(NILO,)` — and it is
+enabled by default. The spec also derives the firmware download route
+`/nilo/ota/download/{filename}` from its `ota_path` (`ProtocolSpec.ota_download_path`), which is the
+route `SimpleHttpServer` registers. What travels over all of this is in [protocol.md](protocol.md).
+The indirection is kept so a future revision of the wire protocol can be added as a second
+`ProtocolSpec` without touching either server.
 
 `WebSocketServer._http_response` is the `websockets` `process_request` hook and does two things:
 
-* a request **without** `Connection: upgrade` gets `200 kivo-server is running` — the cheapest
+* a request **without** `Connection: upgrade` gets `200 nilo-server is running` — the cheapest
   liveness probe for port 8000;
-* an upgrade request is passed to `ProtocolRegistry.ws_accepts`. Unknown paths are accepted unless
-  `protocols.strict: true`, in which case they get `404 unknown protocol path`.
+* an upgrade request is passed to `ProtocolRegistry.ws_accepts`. A path matching no enabled
+  protocol gets `404 unknown protocol path`: `protocols.strict` defaults to **true** and `config.yaml`
+  ships it true, so a route this server no longer serves is genuinely gone rather than quietly
+  upgraded. Setting `protocols.strict: false` restores the inherited permissive behaviour of
+  accepting any path.
 
 `SimpleHttpServer._build_app` registers `GET`/`POST`/`OPTIONS` on each enabled protocol's OTA path
-plus the firmware download route, and always registers `/mcp/vision/explain`. The OTA routes are
-skipped entirely when `read_config_from_api` is true (see §9).
+and `GET`/`OPTIONS` on the firmware download route, and always registers `/mcp/vision/explain`. The
+OTA routes are skipped entirely when `read_config_from_api` is true (see §9).
 
 ---
 
@@ -117,7 +122,7 @@ sequenceDiagram
     participant C as ConnectionHandler
     participant P as Providers (ASR/LLM/TTS)
 
-    D->>WS: HTTP upgrade, path /kivo/v1/<br/>headers device-id, client-id, authorization
+    D->>WS: HTTP upgrade, path /nilo/v1/<br/>headers device-id, client-id, authorization
     WS->>WS: ws_accepts(path)
     alt no device-id header or query param
         WS-->>D: text notice + close
@@ -212,7 +217,7 @@ Registered text handlers (`core/handle/textMessageHandlerRegistry.py`, types in
 | `ping` | `textHandler/pingMessageHandler.py` | Replies `pong` only when `enable_websocket_ping` is true |
 
 Message types already taken on the wire are listed in
-`robot/protocol/legacy_xiaozhi.py:RESERVED_MESSAGE_TYPES`; new Kivo types must not reuse them.
+`robot/protocol/nilo.py:RESERVED_MESSAGE_TYPES`; new Nilo types must not reuse them.
 
 ---
 
@@ -374,7 +379,7 @@ under the `<Kind>:` config block; that block's `type` must equal a module filena
 | Intent | `core/utils/intent.py:create_instance` | `core/providers/intent/<type>/<type>.py` | `IntentProvider` |
 
 Each factory does `os.path.exists` on a **relative** path, so the server must be started with
-`main/kivo-server` as the working directory. An unknown `type` raises
+`main/nilo-server` as the working directory. An unknown `type` raises
 `Unsupported <Kind> type: … - check the 'type' field of that config block`. Adding a provider means
 adding one file and one config block — no registry edit. The catalogue is in
 [providers.md](providers.md).
@@ -415,13 +420,13 @@ conn.loop)`, where `conn.loop` is captured in `handle_connection`.
 
 ## 8. Configuration
 
-`config.yaml` ships defaults; `data/.config.yaml` (or `$KIVO_CONFIG`) overrides them by a recursive
-merge; a small set of `KIVO_*` environment variables wins over both
-(`config/config_loader.py:ENV_OVERRIDES` — `KIVO_SERVER_HOST`, `KIVO_SERVER_PORT`, `KIVO_HTTP_PORT`,
-`KIVO_LOG_LEVEL`, plus `KIVO_CONFIG` which selects the override file itself). Placeholder values
+`config.yaml` ships defaults; `data/.config.yaml` (or `$NILO_CONFIG`) overrides them by a recursive
+merge; a small set of `NILO_*` environment variables wins over both
+(`config/config_loader.py:ENV_OVERRIDES` — `NILO_SERVER_HOST`, `NILO_SERVER_PORT`, `NILO_HTTP_PORT`,
+`NILO_LOG_LEVEL`, plus `NILO_CONFIG` which selects the override file itself). Placeholder values
 still carrying `<your…` are detected by `config/placeholders.py:is_placeholder` and treated as
-unset. The deprecated top-level key `xiaozhi:` is renamed to `hello:` with a warning
-(`config/config_loader.py:DEPRECATED_KEYS`). Full reference: [configuration.md](configuration.md).
+unset. There are no top-level key aliases left — `config/config_loader.py:DEPRECATED_KEYS` is an
+empty dict, and the welcome-message block is spelled `hello:`. Full reference: [configuration.md](configuration.md).
 
 ---
 
@@ -441,17 +446,17 @@ That flag still changes three things — OTA routes are not registered
 (`core/http_server.py:SimpleHttpServer._build_app`), each connection fetches a per-device config and
 may block on device binding (`_initialize_private_config_async`), and the ASR/TTS/tool reporting
 thread starts (`_init_report_threads`, `core/handle/reportHandle.py`). The management console those paths
-talked to is not part of Kivo ([migration.md](migration.md)); leave `manager-api.url` unset. As a
+talked to is not part of Nilo ([migration.md](migration.md)); leave `manager-api.url` unset. As a
 guard, `config/settings.py:check_config_file` refuses a user config that sets both `manager-api` and
 `selected_module`.
 
 ---
 
-## 10. Kivo robot layers (planned)
+## 10. Nilo robot layers (planned)
 
 Only one piece of the robot domain exists in code today: **`robot/protocol/`**, the device-facing
-protocol registry described in §1 (`base.py` with `ProtocolSpec`/`ProtocolRegistry`, `kivo.py`,
-`legacy_xiaozhi.py`, covered by `tests/robot/test_protocol.py`). `robot/__init__.py` carries
+protocol registry described in §1 (`base.py` with `ProtocolSpec`/`ProtocolRegistry` and `nilo.py`,
+covered by `tests/robot/test_protocol.py`). `robot/__init__.py` carries
 `__version__`, which the logger stamps on every line.
 
 Everything else in the robot domain — the semantic action vocabulary and action executor, the
@@ -475,5 +480,5 @@ The intended layering, the seams `robot/` is allowed to use into `core/`, and th
 | How does audio actually flow? | [audio.md](audio.md) |
 | Which providers exist? | [providers.md](providers.md) |
 | How do tools and MCP fit together? | [mcp.md](mcp.md) |
-| How do I work on the code? | [development.md](development.md), [testing.md](testing.md), [`main/kivo-server/CLAUDE.md`](../main/kivo-server/CLAUDE.md) |
+| How do I work on the code? | [development.md](development.md), [testing.md](testing.md), [`main/nilo-server/CLAUDE.md`](../main/nilo-server/CLAUDE.md) |
 | Which code is inherited? | [upstream.md](upstream.md), [migration.md](migration.md) |

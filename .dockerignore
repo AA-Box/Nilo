@@ -5,5 +5,5 @@ __pycache__
 .venv
 Dockerfile*
 docs/
-main/kivo-server/tmp/
-main/kivo-server/data/
+main/nilo-server/tmp/
+main/nilo-server/data/

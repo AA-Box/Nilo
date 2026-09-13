@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Hit a running kivo-server on every protocol route and report what answered.
+"""Hit a running nilo-server on every protocol route and report what answered.
 
     python scripts/smoke_check.py [--host 127.0.0.1] [--ws-port 8000] [--http-port 8003]
 
-Checks, per protocol (kivo, legacy_xiaozhi):
+Checks, per protocol (nilo):
   * GET  {ota_path}            -> 200 and a ws:// URL in the body
   * POST {ota_path}            -> 200 JSON with "websocket" (device-id/client-id headers set)
   * WebSocket handshake on ws_path with a device-id header -> 101, then the server accepts a hello
 
-and that an unknown WebSocket path is handled according to `protocols.strict`.
+plus that the retired routes are gone and that an unknown WebSocket path is handled
+according to `protocols.strict` (which defaults to rejecting it).
 Exit code 0 when every enabled route answers, 1 otherwise. Uses only stdlib + `websockets`.
 """
 from __future__ import annotations
@@ -21,9 +22,10 @@ import urllib.error
 import urllib.request
 
 ROUTES = {
-    "kivo": ("/kivo/v1/", "/kivo/ota/"),
-    "legacy_xiaozhi": ("/xiaozhi/v1/", "/xiaozhi/ota/"),
+    "nilo": ("/nilo/v1/", "/nilo/ota/"),
 }
+# Routes this server used to serve and must not serve any more.
+RETIRED = ("/xiaozhi/v1/", "/xiaozhi/ota/")
 HEADERS = {"device-id": "00:11:22:33:44:55", "client-id": "smoke-check"}
 
 
@@ -77,8 +79,20 @@ def main() -> int:
         failures += 0 if good else 1
         print(f"[{'PASS' if good else 'FAIL'}] {name:15} GET {ota_path} -> {status}; POST -> {status_post}; ws {ws_path} -> {ws_result}")
 
+    for path in RETIRED:
+        if path.endswith("/ota/"):
+            status, _ = http("GET", f"http://{args.host}:{args.http_port}{path}")
+            good = status == 404
+            detail = f"GET -> {status}"
+        else:
+            result = asyncio.run(ws_hello(f"ws://{args.host}:{args.ws_port}{path}"))
+            good = result.startswith("rejected")
+            detail = f"ws -> {result}"
+        failures += 0 if good else 1
+        print(f"[{'PASS' if good else 'FAIL'}] retired {path:16} {detail}")
+
     unknown = asyncio.run(ws_hello(f"ws://{args.host}:{args.ws_port}/not-a-protocol/"))
-    print(f"[info] unknown ws path -> {unknown} (accepted unless protocols.strict is true)")
+    print(f"[info] unknown ws path -> {unknown} (rejected unless protocols.strict is false)")
     return 1 if failures else 0
 
 
