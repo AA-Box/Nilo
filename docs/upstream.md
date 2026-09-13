@@ -25,8 +25,12 @@ Subsystems that remain upstream-derived (all under `main/nilo-server/`):
 | Models | `models/` | Silero VAD (weights vendored); SenseVoiceSmall configuration only, its `model.pt` is mounted at runtime |
 
 Nilo-owned code lives in `main/nilo-server/robot/` — today only `robot/protocol/` — and in the
-tests; Nilo also owns the documentation, Docker files, CI and the top-level configuration
-semantics (`config.yaml` was translated and restructured and is no longer a drop-in copy of
+tests it added (`tests/robot/`, `tests/core/test_ws_path_gate.py`, `tests/core/test_http_routes.py`,
+`tests/config/test_nilo_config.py`, `tests/plugins/test_register.py`, `tests/test_compose.py`,
+`tests/test_imports.py`); `tests/core/utils/`, `tests/config/test_config_loader.py`,
+`tests/plugins_func/` and `tests/test_smoke.py` came with the snapshot. Nilo also owns the
+documentation, Docker files, CI and the top-level configuration semantics
+(`config.yaml` was translated and restructured and is no longer a drop-in copy of
 upstream's, and the inherited deprecated-key aliases are gone: `config_loader.DEPRECATED_KEYS`
 is now empty).
 

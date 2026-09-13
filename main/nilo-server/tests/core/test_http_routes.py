@@ -1,4 +1,4 @@
-"""HTTP route table follows the protocols config: Nilo routes, legacy routes, or both."""
+"""HTTP route table follows the protocols config; the retired routes must not come back."""
 import asyncio
 
 import pytest

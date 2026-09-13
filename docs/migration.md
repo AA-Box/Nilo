@@ -32,7 +32,7 @@ says so.
 | MCP `clientInfo.name` `XiaozhiClient` / `XiaozhiMCPEndpointClient` | `nilo-server` | sent in `initialize`; not interpreted by firmware |
 | log version `0.9.6` (upstream) | `robot.__version__` = `0.1.0` | `config/logger.py` |
 | `Dockerfile-server-base` base `python:3.10-slim`, Aliyun pip mirror, `zh_CN` locale | `python:3.12-slim`, default index, `C.UTF-8` | |
-| CI jobs `Lint (xiaozhi-server)`, `Python (xiaozhi-server)`, `Java (manager-api)`, `Vue (manager-web)` | `Lint and type-check`, `Python 3.12, full dependencies`, `Python 3.12, dev dependencies only`, `Docker Compose validates` | |
+| CI jobs `Lint (xiaozhi-server)`, `Python (xiaozhi-server)`, `Python 3.12 (xiaozhi-server, dev deps only)`, `Java (manager-api)`, `Vue (manager-web)` | `Lint and type-check`, `Python 3.12, full dependencies`, `Python 3.12, dev dependencies only`, `Docker Compose validates` | |
 | default LLM persona (`小智`, Taiwanese girl) | Nilo robot persona, English | `config.yaml` `prompt:` and `agent-base-prompt.txt` |
 
 ## Deleted
@@ -42,8 +42,8 @@ Components (see "Components removed" below for why):
 `main/digital-human/` (99).
 
 Root: `Dockerfile-web`, `docker-setup.sh` (Chinese whiptail installer for the full stack),
-`docs/docker/{nginx.conf,start.sh}`, `.trae/`, `.cozmo/unmerged-prs/` (26 archived upstream
-patches), `main/README.md`, `main/README_en.md`.
+`docs/docker/{nginx.conf,start.sh}`, `.trae/`, `.cozmo/unmerged-prs/` (25 archived upstream
+patches plus their index), `main/README.md`, `main/README_en.md`.
 
 Server: `config_from_api.yaml`, `docker-compose_all.yml`, `test_plugin.py`,
 `plugins/preprocess_plugin/` (Chinese-template smart-home intent rules), `music/*.mp3`
@@ -146,13 +146,17 @@ Gone, with nothing in their place:
 | `tests/core/test_ws_path_gate.py`, `tests/core/test_http_routes.py`, `tests/robot/test_protocol.py`, `tests/config/test_nilo_config.py`, `tests/test_compose.py`, `scripts/smoke_check.py` | they name the retired routes and the removed alias in order to assert they stay retired |
 | `scripts/check_docs.py` | holds the allow-list of files permitted to contain the word |
 | `config.yaml` `exit_commands` `退出`, `关闭` | functional data matched against what the user says |
-| `core/utils/textUtils.py` Chinese punctuation tables, `cnlunar`/`get_lunar` | functional text processing / lunar-calendar feature |
+| `core/utils/textUtils.py` Chinese punctuation table; `cnlunar` in `core/utils/current_time.py`, the `get_lunar` tool in `plugins_func/functions/get_time.py` | functional text processing / lunar-calendar feature |
 | provider adapters for Chinese vendors (Aliyun, Doubao, Xunfei, Tencent, Baidu, ChatGLM, Coze, Dify…) | working integrations; documented as region-specific in [providers.md](providers.md) |
 | `docs/upstream.md`, [branding.md](branding.md), this file | provenance, the branding rules themselves, and the migration record |
 
 `Cozmo` is still the repository name (the clone URL in the README) and is named there as
-inspiration. Chinese text remains only in the functional data above and in tests of Chinese text
-handling (`tests/core/utils/test_textUtils.py`, the lunar-date assertions in
+inspiration. The Chinese text left in the tree is functional data — the values above, the
+categories and source names the news and weather plugins send to Chinese services
+(`plugins_func/functions/get_news_from_chinanews.py`, `get_news_from_newsnow.py`,
+`get_weather.py`), the `你的` placeholder marker the `performance_tester/` scripts check for, and
+sample strings in provider docstrings — plus the tests of Chinese text handling
+(`tests/core/utils/test_textUtils.py`, the lunar-date assertions in
 `tests/core/utils/test_current_time.py`).
 
 ## Components removed and why
