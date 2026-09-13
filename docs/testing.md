@@ -254,12 +254,21 @@ flowchart LR
 
 Neither image workflow runs any test.
 
-### CI has never run
+### CI runs, and what it catches that a local run does not
 
-GitHub Actions is **disabled on the repository**, so none of these workflows has executed — the
-YAML is correct but unexercised. Enabling Actions is an outstanding admin action, listed in
-[migration.md](migration.md). Until then, the commands on this page are the actual gate; run
-`ruff check .`, `mypy`, `pytest -q` and `make compose-validate` locally before pushing.
+GitHub Actions is enabled and the Tests workflow runs on every pull request. Run
+`ruff check .`, `mypy`, `pytest -q` and `make compose-validate` locally first anyway, but note
+two things a local run will not reproduce:
+
+* **The `lint` job installs `requirements-dev.txt` only.** A development machine usually has the
+  full requirements, so `mypy` there resolves imports that CI cannot. `robot/simulator/` imports
+  `websockets` from the full requirements, which is why `mypy.ini` carries an
+  `ignore_missing_imports` entry for it. Reproduce the lint environment with a second virtualenv
+  that has the dev slice alone.
+* **CI runners are slower and more contended.** A test that waits on an event has to subscribe
+  before the thing that emits it starts, not merely before the assertion — on an accelerated
+  simulator clock, a scenario step two simulated seconds in fires while the handshake is still
+  finishing. `tests/integration/test_simulator_e2e.py:recording` exists for exactly that.
 
 ## What is not tested
 

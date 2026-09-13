@@ -36,6 +36,9 @@ ROBOT_ID = "aa:bb:cc:00:00:01"
 NORMALIZED = normalize_robot_id(ROBOT_ID)
 #: Simulated seconds per real second. Keeps a 20 s scenario inside a test's patience.
 CLOCK_SPEED = 20.0
+#: Slower clock for the tests whose scenario drives itself. At CLOCK_SPEED a step at t=2 s
+#: lands ~100 ms after connect, which on a loaded CI runner is still inside the handshake.
+SCRIPTED_SPEED = 8.0
 
 
 def make_robot(
@@ -66,6 +69,19 @@ class _Recorder:
 
     def of(self, kind: type[RobotEvent]) -> list[RobotEvent]:
         return [event for event in self.events if isinstance(event, kind)]
+
+
+def recording(backend: Backend) -> _Recorder:
+    """Subscribe to every robot event.
+
+    Call this **before** starting a simulator whose scenario drives itself: on an
+    accelerated clock a step at t=2 s fires ~100 ms after connect, which is inside the
+    handshake, so a subscription taken after the simulator starts can miss the event it
+    is waiting for.
+    """
+    recorder = _Recorder()
+    backend.runtime.events.subscribe(RobotEvent, recorder)
+    return recorder
 
 
 @contextlib.asynccontextmanager
@@ -204,8 +220,7 @@ async def test_unpublished_tool_is_refused_before_it_reaches_the_device(
 
 
 async def test_movement_reports_moving_then_completed(backend: Backend, robot: SimulatedRobot) -> None:
-    recorder = _Recorder()
-    backend.runtime.events.subscribe(RobotEvent, recorder)
+    recorder = recording(backend)
     await robot.wait_discovered(timeout=15)
     await backend.wait_for(lambda: backend.runtime.capabilities.get(NORMALIZED))
 
@@ -227,8 +242,7 @@ async def test_movement_reports_moving_then_completed(backend: Backend, robot: S
 
 
 async def test_movement_can_be_cancelled(backend: Backend, robot: SimulatedRobot) -> None:
-    recorder = _Recorder()
-    backend.runtime.events.subscribe(RobotEvent, recorder)
+    recorder = recording(backend)
     await robot.wait_discovered(timeout=15)
     await backend.wait_for(lambda: backend.runtime.capabilities.get(NORMALIZED))
 
@@ -251,19 +265,19 @@ async def test_obstacle_appearing_mid_move_fails_the_motion(backend: Backend) ->
         name="obstacle-under-test",
         duration_s=0.0,
         steps=[
+            # The box appears at t=2 s, well before the robot reaches x=1.43 m at t=5.2 s,
+            # so the failure is caused by the obstacle and not by where it already was.
             Step(at_s=1.0, do="move", args={"distance_mm": 2000, "speed_mmps": 200}),
-            Step(at_s=2.0, do="add_obstacle", args={"id": "box", "x_mm": 900, "y_mm": 200, "radius_mm": 100}),
+            Step(at_s=2.0, do="add_obstacle", args={"id": "box", "x_mm": 1600, "y_mm": 200, "radius_mm": 100}),
         ],
     )
-    scripted = make_robot(backend, scenario=scenario)
-    recorder = _Recorder()
-    async with running(scripted) as simulator:
-        backend.runtime.events.subscribe(RobotEvent, recorder)
+    recorder = recording(backend)
+    async with running(make_robot(backend, scenario=scenario, speed=SCRIPTED_SPEED)) as simulator:
         failures = await backend.wait_for(lambda: recorder.of(MotionFailed), timeout=25)
         assert failures[0].reason == "obstacle"
         assert "box" in failures[0].detail
         state = await backend.runtime.registry.get(NORMALIZED)
-        assert state.telemetry.pose is not None and state.telemetry.pose.x_m < 0.85  # stopped short of the box
+        assert state.telemetry.pose is not None and state.telemetry.pose.x_m < 1.5  # stopped short of the box
         assert simulator.state.moving is False
 
 
@@ -276,14 +290,12 @@ async def test_cliff_appearing_mid_move_fails_the_motion(backend: Backend) -> No
             Step(
                 at_s=2.0,
                 do="add_cliff",
-                args={"id": "stairs", "x0_mm": 800, "y0_mm": -500, "x1_mm": 1000, "y1_mm": 3500},
+                args={"id": "stairs", "x0_mm": 1600, "y0_mm": -500, "x1_mm": 1800, "y1_mm": 3500},
             ),
         ],
     )
-    scripted = make_robot(backend, scenario=scenario)
-    recorder = _Recorder()
-    async with running(scripted):
-        backend.runtime.events.subscribe(RobotEvent, recorder)
+    recorder = recording(backend)
+    async with running(make_robot(backend, scenario=scenario, speed=SCRIPTED_SPEED)):
         failures = await backend.wait_for(lambda: recorder.of(MotionFailed), timeout=25)
         assert failures[0].reason == "cliff"
         sensors = await backend.wait_for(lambda: _sensors_with_cliff(backend), timeout=15)
@@ -341,10 +353,8 @@ async def test_motor_failure_fails_the_motion_in_flight(backend: Backend) -> Non
             Step(at_s=2.0, do="fault", args={"motor_failure": True}),
         ],
     )
-    failing = make_robot(backend, scenario=scenario)
-    recorder = _Recorder()
-    async with running(failing):
-        backend.runtime.events.subscribe(RobotEvent, recorder)
+    recorder = recording(backend)
+    async with running(make_robot(backend, scenario=scenario, speed=SCRIPTED_SPEED)):
         failures = await backend.wait_for(lambda: recorder.of(MotionFailed), timeout=25)
         assert failures[0].reason == "motor_failure"
 

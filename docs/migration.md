@@ -179,5 +179,5 @@ no migration debt remains in this repository.
 
 ## Pending admin actions (not done by the migration)
 
-1. Enable GitHub Actions for the repository (it is disabled; no workflow has ever run).
+1. ~~Enable GitHub Actions for the repository.~~ Done: the Tests workflow runs on every pull request.
 2. Publish the first base image: run the **Build Base Image** workflow (`workflow_dispatch`) so `Dockerfile-server` can pull `ghcr.io/aa-box/nilo-server:base`; until then build both images locally with `make docker-build`.
