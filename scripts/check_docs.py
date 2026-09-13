@@ -7,7 +7,8 @@ Checks, over README.md and docs/*.md (plus the component READMEs):
 
   * every relative link resolves to a file that exists
   * every backticked repository path exists, or is a path the roadmap has not built yet
-    (PLANNED_PATHS below — a planned path that starts existing must be removed from that list)
+    (PLANNED_PATHS below — a planned path that starts existing must be removed from that list),
+    or is a git-ignored directory the server creates at runtime (RUNTIME_PATHS)
   * every NILO_* environment variable mentioned is one the code actually reads
   * no Chinese *prose*; Chinese quoted as data inside `backticks` is allowed, because the
     pages have to name legacy config values and wake-word phrases
@@ -72,6 +73,15 @@ LEGACY_ALLOWED = {
     "main/nilo-server/tests/robot/test_protocol.py",
 }
 
+# Git-ignored directories the server creates on first run. They are absent from a fresh clone
+# (which is what CI checks out), but the documentation is right to name them.
+RUNTIME_PATHS = {
+    "main/nilo-server/data",
+    "main/nilo-server/tmp",
+    "data",
+    "tmp",
+}
+
 CJK = re.compile(r"[一-鿿]")
 LINK = re.compile(r"\[[^\]]*\]\(([^)#\s]+)(?:#[^)]*)?\)")
 # A backticked repository path: contains a "/" or is one of the known top-level files.
@@ -85,7 +95,13 @@ LEGACY = re.compile(r"xiaozhi-server|XIAOZHI_|xiaozhi_|小智")
 
 
 def docs() -> list[Path]:
-    pages = [ROOT / "README.md", SERVER / "CLAUDE.md", SERVER / "plugins/README.md"]
+    pages = [
+        ROOT / "README.md",
+        ROOT / "CONTRIBUTING.md",
+        ROOT / "SECURITY.md",
+        SERVER / "CLAUDE.md",
+        SERVER / "plugins/README.md",
+    ]
     pages += sorted((ROOT / "docs").glob("*.md"))
     return [p for p in pages if p.exists()]
 
@@ -107,6 +123,8 @@ def check_pages() -> list[str]:
         if not provenance:
             for m in PATHISH.finditer(text):
                 p = m.group(1).rstrip("/")
+                if p in RUNTIME_PATHS:
+                    continue
                 if p in PLANNED_PATHS:
                     if (SERVER / p).exists():
                         problems.append(
