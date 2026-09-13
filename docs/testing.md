@@ -5,8 +5,10 @@ against it. The test suite covers the Python backend, `nilo-server`, only. There
 or frontend code in the repository and therefore no test suite for any of those
 ([migration.md](migration.md) lists what was removed).
 
-Current state: **232 tests, all passing**, in `main/nilo-server/tests`, plus a lint pass, a
-`robot/`-scoped type check, a Compose validation and a runtime smoke script.
+Current state: **all passing**, in `main/nilo-server/tests`, plus a lint pass, a
+`robot/`-scoped type check, a Compose validation and a runtime smoke script. The simulator
+added three files: two socket-free suites and the end-to-end one
+([robot-simulator.md](robot-simulator.md) Sect. 13).
 
 ## Running the tests
 
@@ -61,10 +63,14 @@ from a sync test call `asyncio.run(...)` directly (for example `tests/core/test_
 | `tests/robot/test_mcp.py` | 21 | `robot/devices/mcp.py` against a fake device — the handshake, `tools/list` with and without pagination, a repeated cursor rejected instead of looping, a silent device timing out with no pending request left behind, malformed and duplicate definitions skipped and counted, protocol errors, tool calls and result unwrapping, device-reported tool errors, request ids starting above the inherited handshake ids, foreign responses ignored, and close rejecting in-flight requests |
 | `tests/robot/test_session.py` | 23 | `robot/runtime.py` and `robot/session.py` end to end over fakes — attach, background discovery, discovery timeout, tool calls with their start/complete/fail events, a tool the robot never published being refused before it reaches the device, disconnect cleanup, reconnect rediscovery, a duplicate connection closing the superseded channel, runtime shutdown, and the session seam on a fake ConnectionHandler (attach, detach, no device id, a hostile connection object, a device without MCP, and the short explicit call timeout) |
 | `tests/robot/test_layering.py` | 2 | `robot/` imports in a subprocess with a clean working directory and no `NILO_CONFIG`, and importing it pulls in no `core`, `config` or `plugins` module — the lazy-import rule of [robot-architecture.md](robot-architecture.md) Sect. 7 |
+| `tests/robot/test_simulator.py` | 107 | `robot/simulator/` without a socket, on a hand-driven clock: the manual and accelerated clocks, ray-cast distance sensors, cliff regions, walls blocking a path, field-of-view visibility, the dock, a move that takes exactly its duration rather than teleporting, turns, cancellation, supersede, obstacle and cliff and motor and flat-battery outcomes, battery drain and charging, seeded sensor noise, the PNG the camera writes, the fixture camera, every published tool schema against the no-float and no-raw-actuator rules, every tool handler, the scenario runner's once-and-in-order guarantee, scenario files, and a scenario that replays byte-identically twice |
+| `tests/robot/test_telemetry.py` | 24 | `robot/telemetry.py` — which notification methods are claimed, millimetres and degrees and millivolts converted to the world model's units, readings filtered to numbers, an unknown activity recorded as idle, a composite frame filling every slice, four shapes of malformed field falling back instead of raising, `MotionCompleted` / `MotionFailed` and a motion notification with no action id producing no event, ingestion into a runtime with its events, an unregistered robot, and the session seam claiming only telemetry and never raising on a hostile payload |
+| `tests/integration/test_simulator_e2e.py` | 17 | The simulator against a server started in-process over a real socket: registration, two robots being two entries, capability discovery (15 tools, dotted names sanitized, raw names preserved) including across several `tools/list` pages, telemetry landing in the world state, a tool call round trip, a camera frame the server's own image sniffer accepts, an unpublished tool refused before it reaches the device, a move reporting `moving` then `MotionCompleted`, cancellation, an obstacle and a cliff appearing mid-move, an injected tool timeout and tool error and motor failure, an abrupt disconnect clearing the entry, and a reconnect that rediscovers. See [robot-simulator.md](robot-simulator.md) |
 
-The action vocabulary, behaviour engine, personality, robot memory, simulator and safety policy
-described in [robot-architecture.md](robot-architecture.md) and
-[robot-roadmap.md](robot-roadmap.md) are **Planned** — there is no code and no test for them.
+The action vocabulary, behaviour engine, personality, robot memory and safety policy described
+in [robot-architecture.md](robot-architecture.md) and [robot-roadmap.md](robot-roadmap.md) are
+**Planned** — there is no code and no test for them. The simulator is not: see
+[robot-simulator.md](robot-simulator.md).
 What the robot tests do cover is described in [robot-domain.md](robot-domain.md).
 
 ## Dependency slices
@@ -77,7 +83,8 @@ on config, protocol or utility code never has to install `torch`, `funasr` or `m
 | Dev only | `pip install -r requirements-dev.txt` | 113 passed + 6 skipped — the tests needing the full runtime skip themselves |
 | Full | `pip install -r requirements.txt -r requirements-dev.txt` | 126 passed |
 
-`requirements-dev.txt` pins the tooling (`pytest`, `pytest-asyncio`, `freezegun`, `ruff`, `mypy`)
+`requirements-dev.txt` pins the tooling (`pytest`, `pytest-asyncio`, `freezegun`, `ruff`, `mypy`,
+and `types-PyYAML` because `mypy` is strict over `robot/` and the scenario loader reads YAML)
 plus the minimal runtime slice the tests import: `PyYAML`, `httpx`, `cnlunar`, `pydantic`,
 `loguru`.
 
@@ -89,6 +96,11 @@ missing, the whole module is reported as one skip and contributes no collected t
 | `tests/core/test_http_routes.py` | `aiohttp`, `opuslib_next`, `numpy`, `pydub` |
 | `tests/core/test_ws_path_gate.py` | `websockets`, `opuslib_next`, `numpy` |
 | `tests/plugins_func/test_loadplugins.py` | `opuslib_next`, `numpy` |
+| `tests/integration/conftest.py` | `websockets`, `opuslib_next`, `numpy` — the guard sits in the conftest, so the whole directory skips as one |
+
+`robot/simulator/` imports `websockets` lazily, inside the session, so
+`tests/robot/test_simulator.py` runs on the dev slice even though the simulator cannot connect
+there.
 
 `tests/test_imports.py` skips at a finer grain: each parametrised module that raises
 `ModuleNotFoundError` is skipped individually with the missing dependency named, so a module that
@@ -258,8 +270,11 @@ YAML is correct but unexercised. Enabling Actions is an outstanding admin action
   `tests/test_imports.py` never reaches them (no `__init__.py`, so `walk_packages` skips the
   directory), and only the provider base classes come along transitively when `core.connection`
   is imported. Nothing calls a vendor API. See [architecture.md](architecture.md).
-* **No MCP integration tests.** Tool registration is covered at the registry level
-  (`tests/plugins/test_register.py`); no MCP transport is exercised. See [mcp.md](mcp.md).
+* **The device MCP transport is now exercised**, by `tests/integration/test_simulator_e2e.py`:
+  the handshake, paged `tools/list` and `tools/call` all run over a real WebSocket. What is
+  still untested is *server-side* MCP (remote endpoints, server MCP servers) and tool
+  registration beyond the registry level (`tests/plugins/test_register.py`). See
+  [mcp.md](mcp.md).
 * **`performance_tester/` is not a test suite.** `main/nilo-server/performance_tester/` holds six
   standalone benchmark scripts — `performance_tester_asr.py`, `_stream_asr.py`, `_llm.py`,
   `_tts.py`, `_stream_tts.py`, `_vllm.py`. They load real credentials through the normal config
@@ -269,7 +284,9 @@ YAML is correct but unexercised. Enabling Actions is an outstanding admin action
 ## Adding a test
 
 * Put it under the directory mirroring the module you are testing (`tests/robot/…` for `robot/…`).
-  Every test directory has an `__init__.py`; add one for a new directory.
+  Every test directory has an `__init__.py`; add one for a new directory. A test that opens a
+  socket or starts a server goes under `tests/integration/`, not `tests/robot/` — that package
+  is socket-free by contract, which is what keeps it fast.
 * Do not add a `conftest.py` to set `sys.path` or `NILO_CONFIG` — the root `tests/conftest.py`
   already does both.
 * If the test needs anything outside `requirements-dev.txt` (`aiohttp`, `numpy`, `opuslib_next`,

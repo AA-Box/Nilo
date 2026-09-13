@@ -71,6 +71,23 @@ class SensorUpdated(RobotEvent):
     sensors: RobotSensorState
 
 
+class MotionCompleted(RobotEvent):
+    """A motion the robot accepted finished on its own. Reported by the device, not inferred."""
+
+    action_id: str
+    kind: str = "move"
+    pose: RobotPose | None = None
+
+
+class MotionFailed(RobotEvent):
+    """A motion ended without finishing. ``reason`` is the device's word for why."""
+
+    action_id: str
+    kind: str = "move"
+    reason: str = "unknown"
+    detail: str = ""
+
+
 class ToolDiscovered(RobotEvent):
     tool: RobotTool
 
@@ -105,6 +122,8 @@ class ToolCallFailed(RobotEvent):
 __all__ = [
     "BatteryUpdated",
     "CapabilitiesRefreshed",
+    "MotionCompleted",
+    "MotionFailed",
     "PoseUpdated",
     "RobotConnected",
     "RobotDisconnected",

@@ -1,4 +1,4 @@
-.PHONY: help test lint typecheck check-docs run compose-validate docker-build smoke
+.PHONY: help test lint typecheck check-docs run simulator compose-validate docker-build smoke
 
 SERVER := main/nilo-server
 PY ?= python
@@ -9,6 +9,7 @@ help:
 	@echo "make typecheck        - mypy on $(SERVER)/robot"
 	@echo "make check-docs       - validate docs links, paths, env vars and branding"
 	@echo "make run              - start nilo-server locally (needs requirements.txt)"
+	@echo "make simulator        - run the robot simulator against a running server (SERVER_URL, ROBOT_ID, SCENARIO)"
 	@echo "make compose-validate - docker compose config"
 	@echo "make docker-build     - build base + server images locally"
 	@echo "make smoke            - hit a running server's OTA/WebSocket routes (HOST, WS_PORT, HTTP_PORT)"
@@ -27,6 +28,12 @@ check-docs:
 
 run:
 	cd $(SERVER) && $(PY) app.py
+
+simulator:
+	cd $(SERVER) && $(PY) -m robot.simulator \
+		--server $${SERVER_URL:-ws://127.0.0.1:8000/nilo/v1/} \
+		--robot-id $${ROBOT_ID:-nilo-sim-01} \
+		--scenario $${SCENARIO:-idle}
 
 compose-validate:
 	cd $(SERVER) && docker compose -f docker-compose.yml config --quiet && echo "docker-compose.yml OK"

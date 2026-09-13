@@ -440,6 +440,23 @@ starts normally and only transcription is broken. If ASR returns nothing, verify
 
 ---
 
+## Connect a robot without hardware
+
+The quickest way to see the robot layers do something is the simulator: a client that speaks
+the whole device protocol, publishes 15 hardware capabilities as device MCP tools, moves over
+time and reports telemetry. With the server running, in a second terminal:
+
+```bash
+cd main/nilo-server
+python -m robot.simulator --server ws://127.0.0.1:8000/nilo/v1/ --robot-id nilo-sim-01 --scenario person_enters_room
+```
+
+The server log shows it register and its tools appear; `python -m robot.simulator --status`
+prints the robot's own state. Full reference, including scenarios and failure injection:
+[robot-simulator.md](robot-simulator.md).
+
+---
+
 ## Next steps
 
 * [configuration.md](configuration.md) — every config key, layering rules, provider selection
@@ -450,6 +467,8 @@ starts normally and only transcription is broken. If ASR returns nothing, verify
 * [mcp.md](mcp.md) — exposing the device's own capabilities to the agent as tools
 * [deployment.md](deployment.md) — Docker, reverse proxies, public deployments
 * [development.md](development.md) and [testing.md](testing.md) — layout, conventions, the suite
+* [robot-simulator.md](robot-simulator.md) — the simulated robot, scenarios and failure injection
+* [robot-domain.md](robot-domain.md) — the robot layers that run today
 * [robot-architecture.md](robot-architecture.md), [safety.md](safety.md),
   [robot-roadmap.md](robot-roadmap.md) — the planned robot layers
 * [upstream.md](upstream.md), [migration.md](migration.md), [branding.md](branding.md) — provenance

@@ -21,8 +21,10 @@ one doing right now".
 | MCP client, discovery, pagination, tool calls | `robot/devices/mcp.py` | Implemented |
 | Control plane that wires the above together | `robot/runtime.py` | Implemented |
 | Session seam onto the inherited connection handler | `robot/session.py` | Implemented |
+| Device telemetry notifications turned into world state and events | `robot/telemetry.py` | Implemented |
 | Route registry for the device protocol | `robot/protocol/` | Implemented (earlier) |
-| Behaviour, actions, safety, world map, memory, simulator | — | Planned |
+| Simulated robot that speaks the whole device protocol | `robot/simulator/` | Implemented ([robot-simulator.md](robot-simulator.md)) |
+| Behaviour, actions, safety, world map, memory | — | Planned |
 
 ```mermaid
 flowchart LR
@@ -34,6 +36,9 @@ flowchart LR
     REG --> ST["robot/state<br/>RobotStateStore"]
     REG --> EV["robot/events<br/>EventBus"]
     CH -->|initialize · tools/list| DEV
+    DEV -->|notifications/*| CONN
+    CONN --> TEL["robot/telemetry.py"]
+    TEL --> RT
 ```
 
 ## Domain models
@@ -106,12 +111,38 @@ Postgres; an implementation may call the change function more than once, so it m
 pure. `InMemoryRobotStateStore` is the implementation that ships. There is no module-level
 instance: a store is constructed per runtime and per test.
 
+## Telemetry from a device
+
+`robot/telemetry.py` is the inbound half of the world model. A device reports itself as MCP
+notifications — JSON-RPC with a `method` and no `id` — and
+`robot/session.py:handle_notification` claims the telemetry methods out of the branch in
+`core/providers/tools/device_mcp/mcp_handler.py` that otherwise logs the method name and
+drops the frame:
+
+| Method | Becomes |
+|---|---|
+| `notifications/telemetry` | Every slice of `RobotTelemetry` at once |
+| `notifications/pose` | `RobotPose` |
+| `notifications/battery` | `RobotBatteryState` |
+| `notifications/sensor` | `RobotSensorState` |
+| `notifications/motion_completed` | A `MotionCompleted` event, plus the pose it finished at |
+| `notifications/motion_failed` | A `MotionFailed` event carrying the device's reason |
+
+`notifications/motion`, `/audio`, `/vision`, `/expression` and `/activity` map to their own
+slices too. Conversion from the device's integer millimetres, degrees and percentages into
+the model's metres, radians and fractions happens here and nowhere else, and a malformed
+field is dropped rather than raised on, so one bad number does not cost a whole frame.
+`parse()` is pure and testable without a runtime; `ingest()` applies a frame and never
+raises, because it runs from inherited code where a robot problem must not break a voice
+session. The wire format is documented in [robot-simulator.md](robot-simulator.md).
+
 ## Events
 
 `robot/events/types.py` holds the vocabulary — `RobotConnected`, `RobotDisconnected`,
-`TelemetryUpdated`, `BatteryUpdated`, `PoseUpdated`, `SensorUpdated`, `ToolDiscovered`,
-`CapabilitiesRefreshed`, `ToolCallStarted`, `ToolCallCompleted`, `ToolCallFailed` — each a
-frozen model with an `event_id`, a `robot_id` and an `occurred_at`.
+`TelemetryUpdated`, `BatteryUpdated`, `PoseUpdated`, `SensorUpdated`, `MotionCompleted`,
+`MotionFailed`, `ToolDiscovered`, `CapabilitiesRefreshed`, `ToolCallStarted`,
+`ToolCallCompleted`, `ToolCallFailed` — each a frozen model with an `event_id`, a `robot_id`
+and an `occurred_at`.
 
 ```python
 bus = EventBus(queue_size=256)
@@ -228,6 +259,8 @@ of the heavy runtime dependencies:
 | `tests/robot/test_session.py` | The runtime and the session seam end to end: attach, discover, call, reconnect, supersede, disconnect cleanup |
 | `tests/robot/test_layering.py` | `robot/` imports with no config file and without pulling in `core/` |
 | `tests/robot/test_protocol.py` | The route registry |
+| `tests/robot/test_telemetry.py` | Notification parsing, unit conversion, malformed fields, motion events, ingestion, and the session seam |
+| `tests/robot/test_simulator.py` | The simulator's clock, world, physics, camera, tool table and scenario runner — no socket |
 
 `tests/robot/conftest.py` holds the fakes: `FakeMcpDevice` (a device that answers JSON-RPC
 and can paginate, stall or fail), `FakeDeviceMcpClient` (the inherited client's shape) and
@@ -237,5 +270,6 @@ and can paginate, stall or fail), `FakeDeviceMcpClient` (the inherited client's 
 
 [robot-architecture.md](robot-architecture.md) — the target architecture and the safety
 rule · [robot-roadmap.md](robot-roadmap.md) — phases and acceptance criteria ·
-[mcp.md](mcp.md) — the tool channel · [testing.md](testing.md) — how the suite is run ·
+[mcp.md](mcp.md) — the tool channel · [robot-simulator.md](robot-simulator.md) — the robot on
+the other end of it · [testing.md](testing.md) — how the suite is run ·
 [development.md](development.md) — lint, types, tests

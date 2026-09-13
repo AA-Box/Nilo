@@ -6,6 +6,7 @@ source of truth; read them before touching anything:
 * [`docs/architecture.md`](../../docs/architecture.md) — how the server works today
 * [`docs/robot-architecture.md`](../../docs/robot-architecture.md) — where robot code goes and the safety rule
 * [`docs/robot-domain.md`](../../docs/robot-domain.md) — the robot domain layer that is implemented
+* [`docs/robot-simulator.md`](../../docs/robot-simulator.md) — the simulator: run it, extend it, test against it
 * [`docs/development.md`](../../docs/development.md) — setup, lint, tests, layout
 * [`docs/upstream.md`](../../docs/upstream.md) — which code is inherited and how it is synced
 * [`docs/branding.md`](../../docs/branding.md) — naming rules (no product name in domain code, no Chinese)
@@ -18,8 +19,11 @@ config/           YAML layering, NILO_* env overrides, placeholders, logging   (
 core/             session server, handlers, providers, tool system            (inherited — minimise edits)
 plugins*/         interceptor plugins and @register_function tools             (inherited)
 robot/            Nilo-owned code: protocol/ (routes), state/ (models + store), events/ (bus),
-                  devices/ (robot registry, MCP capability discovery), runtime.py, session.py
-tests/            pytest; tests/conftest.py points NILO_CONFIG at tests/fixtures/test_config.yaml
+                  devices/ (robot registry, MCP capability discovery), telemetry.py (device
+                  notifications -> world state), simulator/ (a fake robot on a real socket),
+                  runtime.py, session.py
+tests/            pytest; tests/conftest.py points NILO_CONFIG at tests/fixtures/test_config.yaml.
+                  tests/robot/ never opens a socket; tests/integration/ starts a real server
 ```
 
 Rules of thumb:
@@ -36,9 +40,11 @@ Rules of thumb:
 ```bash
 python3.12 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt   # full; on macOS vosk is skipped automatically
-pytest -q                 # 232 tests with full deps; the dev slice (requirements-dev.txt only) skips heavy ones
+pytest -q                 # whole suite; the dev slice (requirements-dev.txt only) skips the socket tests
 ruff check .
 mypy                      # robot/ only, strict
 python app.py             # needs data/.config.yaml or NILO_CONFIG=<file>; see docs/getting-started.md
+python -m robot.simulator --server ws://127.0.0.1:8000/nilo/v1/ --scenario person_enters_room
+python -m robot.simulator --status    # the simulated robot's own state
 python ../../scripts/smoke_check.py   # against a running server
 ```
