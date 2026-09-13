@@ -4,7 +4,7 @@
 |---|---|
 | Product | **Nilo** |
 | Backend | **Nilo Server** (`nilo-server`) |
-| Repository | `AA-Box/Nilo` (target; the GitHub rename from `AA-Box/Cozmo` is an admin action, see [migration.md](migration.md)) |
+| Repository | `AA-Box/Nilo` |
 | Python namespace for robot code | `robot` (product-neutral, see below) |
 | Environment prefix | `NILO_` |
 | Container / image prefix | `nilo-` — `ghcr.io/aa-box/nilo-server:{base,latest,X.Y.Z}` |

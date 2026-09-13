@@ -49,7 +49,7 @@ On macOS the bundled `libs/mac/<arch>/libopus.dylib` is used automatically; inst
 ## 2. Install
 
 ```bash
-git clone https://github.com/AA-Box/Cozmo.git nilo
+git clone https://github.com/AA-Box/Nilo.git nilo
 cd nilo/main/nilo-server
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt

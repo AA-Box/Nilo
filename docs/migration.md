@@ -23,6 +23,7 @@ says so.
 
 | Before | After | Notes |
 |---|---|---|
+| GitHub repository `AA-Box/Cozmo` | `AA-Box/Nilo` | renamed after the migration landed; GitHub redirects keep old clone URLs working |
 | `main/xiaozhi-server/` | `main/nilo-server/` | `git mv`; Python imports are relative to the server directory, so no import changed |
 | `.cozmo/sync-upstream.sh` | `scripts/sync-upstream.sh` | `.cozmo/` removed |
 | config key `xiaozhi:` (server hello template) | `hello:` | step 1 kept the old key as a deprecated alias; step 2 removed it — only `hello:` loads |
@@ -150,8 +151,7 @@ Gone, with nothing in their place:
 | provider adapters for Chinese vendors (Aliyun, Doubao, Xunfei, Tencent, Baidu, ChatGLM, Coze, Dify…) | working integrations; documented as region-specific in [providers.md](providers.md) |
 | `docs/upstream.md`, [branding.md](branding.md), this file | provenance, the branding rules themselves, and the migration record |
 
-`Cozmo` is still the repository name (the clone URL in the README) and is named there as
-inspiration. The Chinese text left in the tree is functional data — the values above, the
+`Cozmo` is named in the README only as design inspiration. The Chinese text left in the tree is functional data — the values above, the
 categories and source names the news and weather plugins send to Chinese services
 (`plugins_func/functions/get_news_from_chinanews.py`, `get_news_from_newsnow.py`,
 `get_weather.py`), the `你的` placeholder marker the `performance_tester/` scripts check for, and
@@ -179,6 +179,5 @@ no migration debt remains in this repository.
 
 ## Pending admin actions (not done by the migration)
 
-1. Rename the GitHub repository: `gh repo rename Nilo --repo AA-Box/Cozmo` (redirects keep old clones working), then update the clone URL in the README.
-2. Enable GitHub Actions for the repository (it is disabled; no workflow has ever run).
-3. Publish the first base image: run the **Build Base Image** workflow (`workflow_dispatch`) so `Dockerfile-server` can pull `ghcr.io/aa-box/nilo-server:base`; until then build both images locally with `make docker-build`.
+1. Enable GitHub Actions for the repository (it is disabled; no workflow has ever run).
+2. Publish the first base image: run the **Build Base Image** workflow (`workflow_dispatch`) so `Dockerfile-server` can pull `ghcr.io/aa-box/nilo-server:base`; until then build both images locally with `make docker-build`.

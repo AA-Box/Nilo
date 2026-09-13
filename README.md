@@ -60,7 +60,7 @@ Requirements: Python 3.12, `ffmpeg` on the PATH, an LLM API key (any OpenAI-comp
 On Linux install `libopus0`; macOS and Windows use the bundled Opus libraries in `libs/`.
 
 ```bash
-git clone https://github.com/AA-Box/Cozmo.git nilo
+git clone https://github.com/AA-Box/Nilo.git nilo
 cd nilo/main/nilo-server
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt

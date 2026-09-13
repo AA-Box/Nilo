@@ -7,7 +7,7 @@ How to set up, run, test and extend `nilo-server`. Deployment (Docker, Compose, 
 ## Repository layout
 
 ```
-Cozmo/                          repository root (the GitHub rename to Nilo is pending, see migration.md)
+Nilo/                           repository root
 ├── Makefile                    every command in this page has a target here
 ├── Dockerfile-server           runtime image (FROM the base image)
 ├── Dockerfile-server-base      base image: python:3.12-slim + system deps
