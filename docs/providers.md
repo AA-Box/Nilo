@@ -276,7 +276,7 @@ told what your knowledge base or search scope contains.
 
 ## What the tests exercise
 
-`make test` (equivalently `cd main/nilo-server && python -m pytest -q`) runs 126 tests in about a
+`make test` (equivalently `cd main/nilo-server && python -m pytest -q`) runs 232 tests in about a
 second. **No test opens a network connection, and none needs a provider credential.** Provider
 coverage is deliberately thin:
 

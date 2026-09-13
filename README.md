@@ -28,11 +28,14 @@ than a smart speaker. The direction is described in [docs/robot-architecture.md]
 * Unified tool system: server plugins, device IoT descriptors, device MCP tools, remote MCP endpoints, server-side MCP servers ([docs/mcp.md](docs/mcp.md))
 * Vision: `/mcp/vision/explain` runs a vision-LLM over a device camera frame
 * Configuration layering (`config.yaml` → user file → `NILO_*` environment), HMAC device tokens, structured logging
+* Robot domain layer (`main/nilo-server/robot/`): typed models for identity, capabilities, connection,
+  telemetry and world state; an async registry of connected robots that survives reconnects; a state-store
+  abstraction; a bounded in-process event bus; and capability discovery over the device MCP tool channel
+  ([docs/robot-domain.md](docs/robot-domain.md))
 * Test suite, lint (Ruff), strict typing for `robot/` (mypy), Docker image and Compose file
 
 **In development:**
 
-* Robot domain layer under `main/nilo-server/robot/` — the protocol registry is the first piece
 * Semantic action vocabulary (`move`, `turn`, `look_at`, `follow`, `play_animation`, `stop`) and the action executor
 * Robot simulator (Python client that speaks the device protocol)
 
@@ -47,7 +50,8 @@ robot / device ──WebSocket + Opus──▶ nilo-server
                                       ├─ inherited infrastructure (core/)
                                       │    session handler · VAD → ASR → LLM → TTS · tool system · MCP · OTA · vision
                                       └─ Nilo robotics layers (robot/)
-                                           protocol registry ✓ · actions · safety · behaviour · world model · memory
+                                           protocol registry ✓ · robot registry ✓ · state ✓ · events ✓ · capabilities ✓
+                                           actions · safety · behaviour · world map · memory
 ```
 
 The inherited infrastructure is a stable, well-tested voice pipeline; Nilo adds robotics on top
@@ -161,7 +165,7 @@ as little as possible. Layout, conventions and where things go: [docs/developmen
 
 ## Testing
 
-`pytest -q` in `main/nilo-server` (124 tests with the full requirements installed);
+`pytest -q` in `main/nilo-server` (232 tests with the full requirements installed);
 `make test`, `make lint`, `make typecheck` from the repository root; `scripts/smoke_check.py`
 against a running server. CI runs lint + mypy, the suite on Python 3.12 with full and with
 dev-only dependencies, and validates the Compose file. Details: [docs/testing.md](docs/testing.md).

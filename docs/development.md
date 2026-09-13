@@ -35,7 +35,7 @@ Inside `main/nilo-server/`:
 | `core/` | inherited | `connection.py`, `websocket_server.py`, `http_server.py`, `api/` (OTA, vision), `handle/` (text and audio message handling), `providers/` (ASR/TTS/LLM/VLLM/VAD/memory/intent/tools), `utils/` |
 | `plugins/` | inherited | Unified plugin system: `BasePlugin` interceptors and `@register_function` tools ([plugins/README.md](../main/nilo-server/plugins/README.md)) |
 | `plugins_func/` | inherited | Shipped tool functions (`get_time`, `get_weather`, `play_music`, …) plus back-compat re-exports of `plugins.register` |
-| `robot/` | Nilo | Nilo-owned package. Today: `robot/protocol/` — `base.py` (`ProtocolSpec`, `ProtocolRegistry`), `nilo.py` (the one `nilo` spec, `RESERVED_MESSAGE_TYPES`), `__init__.py` (`ALL_PROTOCOLS`, `registry_from_config`) — and `__version__` |
+| `robot/` | Nilo | Nilo-owned package: `protocol/` (route registry), `state/` (domain models, freshness, state store), `events/` (typed events, async bounded bus), `devices/` (robot registry, tool and capability registries, MCP discovery), `runtime.py` (the control plane), `session.py` (the seam onto a live session) and `logging.py`. See [robot-domain.md](robot-domain.md) |
 | `tests/` | Nilo | pytest suite; `conftest.py` sets `NILO_CONFIG`; `fixtures/test_config.yaml` is an empty override |
 | `performance_tester/` | inherited | Standalone latency benchmarks for ASR, TTS, LLM and vision-LLM providers |
 | `models/` | vendored | Silero VAD source and SenseVoiceSmall configuration; weights are not tracked (`model.pt` is gitignored) |
@@ -190,10 +190,12 @@ make test          # or: cd main/nilo-server && python -m pytest -q
    empty (`{}`) override file. Tests therefore never read or write your `data/.config.yaml`,
    and the config and logging machinery works on a machine that has never been configured.
 
-With the full dependency set the suite is 126 tests and runs in about a second. Coverage
-today: the config loader and `NILO_*` overrides, `robot/protocol`, the HTTP routes and the
-WebSocket path gate, the plugin registry and loader, text/dialogue/time utilities, the
-Compose file, and an import test that walks every first-party module.
+With the full dependency set the suite is 232 tests and runs in about two seconds. Coverage
+today: the config loader and `NILO_*` overrides, the robot domain layer (models, state store,
+event bus, registry, MCP discovery, the session seam — [robot-domain.md](robot-domain.md)),
+`robot/protocol`, the HTTP routes and the WebSocket path gate, the plugin registry and loader,
+text/dialogue/time utilities, the Compose file, and an import test that walks every
+first-party module.
 
 ### What skips without the full dependencies
 
@@ -259,9 +261,10 @@ in [robot-architecture.md](robot-architecture.md):
 > hook. Every line changed in `core/` is a line that conflicts on the next upstream port.
 
 `robot/` is the only Nilo-owned Python package. It is strictly typed, product-neutral in its
-vocabulary (see [branding.md](branding.md)), and today contains just the protocol registry —
-the robot domain layer (actions, behaviour, world model, robot memory, simulator, safety
-policy) is **Planned**, not implemented.
+vocabulary (see [branding.md](branding.md)), and today contains the protocol registry and the
+robot domain layer — models, state store, event bus, robot registry and MCP capability
+discovery ([robot-domain.md](robot-domain.md)). Actions, behaviour, personality, robot
+memory, the simulator and the safety policy are **Planned**, not implemented.
 
 The inherited server offers four extension points that need no edit to `core/`:
 

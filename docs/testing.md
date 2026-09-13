@@ -5,7 +5,7 @@ against it. The test suite covers the Python backend, `nilo-server`, only. There
 or frontend code in the repository and therefore no test suite for any of those
 ([migration.md](migration.md) lists what was removed).
 
-Current state: **126 tests, all passing**, in `main/nilo-server/tests`, plus a lint pass, a
+Current state: **232 tests, all passing**, in `main/nilo-server/tests`, plus a lint pass, a
 `robot/`-scoped type check, a Compose validation and a runtime smoke script.
 
 ## Running the tests
@@ -40,7 +40,7 @@ from a sync test call `asyncio.run(...)` directly (for example `tests/core/test_
 | File | Tests | Covers |
 |---|---:|---|
 | `tests/test_smoke.py` | 2 | pytest collects from the directory; `tmp_path` is writable |
-| `tests/test_imports.py` | 24 | Walks `config`, `core`, `plugins`, `plugins_func`, `robot` with `pkgutil.walk_packages` and imports every module found — catches broken renames. A `ModuleNotFoundError` is treated as a missing optional dependency and skipped, not failed. The count is dynamic: one parameter per module discovered. Discovery stops at directories without an `__init__.py`, so the namespace packages `core/utils/`, `core/providers/`, `core/handle/`, `core/api/` and `plugins_func/functions/` are never walked |
+| `tests/test_imports.py` | 36 | Walks `config`, `core`, `plugins`, `plugins_func`, `robot` with `pkgutil.walk_packages` and imports every module found — catches broken renames. A `ModuleNotFoundError` is treated as a missing optional dependency and skipped, not failed. The count is dynamic: one parameter per module discovered. Discovery stops at directories without an `__init__.py`, so the namespace packages `core/utils/`, `core/providers/`, `core/handle/`, `core/api/` and `plugins_func/functions/` are never walked |
 | `tests/test_compose.py` | 2 | Parses `docker-compose.yml` with PyYAML (no Docker daemon): the only service is `nilo-server`, image `ghcr.io/aa-box/nilo-server:latest`, ports `8000`/`8003`, the four `NILO_*` variables are present, `./data` is mounted at `/opt/nilo-server/data`; and the file carries none of the retired upstream service names (the legacy server, `manager`, `xinnan`) |
 | `tests/config/test_config_loader.py` | 7 | `config/config_loader.py:merge_configs` — override, add, recursive and deep-recursive merge, dict↔scalar replacement, and that the defaults dict is not mutated |
 | `tests/config/test_nilo_config.py` | 6 | `apply_env_overrides` (the `NILO_SERVER_HOST`/`PORT`, `NILO_HTTP_PORT`, `NILO_LOG_LEVEL` mapping, ignoring unset/empty values, creating a missing section), `apply_deprecated_aliases` now being a no-op because `config_loader.DEPRECATED_KEYS` is empty, `custom_config_path()` honouring `NILO_CONFIG` and falling back to `data/.config.yaml`, and one end-to-end `load_config()` that proves a user `hello:` override and an env override land in the merged config alongside `protocols.nilo.enabled` and `protocols.strict` |
@@ -55,10 +55,17 @@ from a sync test call `asyncio.run(...)` directly (for example `tests/core/test_
 | `tests/plugins_func/test_loadplugins.py` | 1 | Imports `plugins_func/functions/get_time.py` as `plugins_func.functions.get_time` and checks the attribute is there — the plugin subpackage still imports and its `@register_function` decorator (which registers `get_lunar`) runs at import time |
 | `tests/robot/test_protocol.py` | 13 | `robot/protocol/` — the `nilo` route constants, `nilo` being the only entry in `ALL_PROTOCOLS`, `ProtocolSpec` rejecting unslashed paths, `registry_from_config` enabling `nilo` by default and raising `RuntimeError` once it is disabled, WebSocket path matching that ignores query strings and trailing slashes, `strict` defaulting to true so retired and unknown paths are rejected (and accepted again when it is false), a malformed `protocols:` block raising `ValueError`, and `RESERVED_MESSAGE_TYPES` covering the wire vocabulary |
 
-`robot/protocol` is the only part of the robot package that exists, so it is the only robot code
-under test. The action vocabulary, behaviour engine, world model, robot memory, simulator and
-safety policy described in [robot-architecture.md](robot-architecture.md) and
+| `tests/robot/test_state.py` | 16 | `robot/state/` — robot-id normalisation, frozen models, bounded fields, the age carried by every timestamped entry and `require_fresh` raising `StaleStateError` rather than returning stale data, telemetry merge and change detection, and the in-memory store including its read-modify-write `mutate` |
+| `tests/robot/test_events.py` | 12 | `robot/events/` — fan-out to multiple subscribers, selection by type and by a tuple of types, sync and async handlers, unsubscribe, a handler that raises being isolated from the publisher and its peers, drop-oldest under a producer faster than its consumer, a slow subscriber not blocking a fast one, `publish` never waiting on a handler, and shutdown refusing further use |
+| `tests/robot/test_registry.py` | 19 | `robot/devices/registry.py` — registration and its event, connected-only listing, a second session superseding the first, an idempotent re-register, a reconnect keeping telemetry and capabilities until discovery refreshes them, disconnect clearing live capabilities, double teardown and a teardown from a superseded session both being no-ops, telemetry merge with per-field events, liveness refresh, capability refresh with `ToolDiscovered`/`CapabilitiesRefreshed`, identity fields filled in from what the device reported, and 25 robots connecting, reporting and disconnecting concurrently |
+| `tests/robot/test_mcp.py` | 21 | `robot/devices/mcp.py` against a fake device — the handshake, `tools/list` with and without pagination, a repeated cursor rejected instead of looping, a silent device timing out with no pending request left behind, malformed and duplicate definitions skipped and counted, protocol errors, tool calls and result unwrapping, device-reported tool errors, request ids starting above the inherited handshake ids, foreign responses ignored, and close rejecting in-flight requests |
+| `tests/robot/test_session.py` | 23 | `robot/runtime.py` and `robot/session.py` end to end over fakes — attach, background discovery, discovery timeout, tool calls with their start/complete/fail events, a tool the robot never published being refused before it reaches the device, disconnect cleanup, reconnect rediscovery, a duplicate connection closing the superseded channel, runtime shutdown, and the session seam on a fake ConnectionHandler (attach, detach, no device id, a hostile connection object, a device without MCP, and the short explicit call timeout) |
+| `tests/robot/test_layering.py` | 2 | `robot/` imports in a subprocess with a clean working directory and no `NILO_CONFIG`, and importing it pulls in no `core`, `config` or `plugins` module — the lazy-import rule of [robot-architecture.md](robot-architecture.md) Sect. 7 |
+
+The action vocabulary, behaviour engine, personality, robot memory, simulator and safety policy
+described in [robot-architecture.md](robot-architecture.md) and
 [robot-roadmap.md](robot-roadmap.md) are **Planned** — there is no code and no test for them.
+What the robot tests do cover is described in [robot-domain.md](robot-domain.md).
 
 ## Dependency slices
 

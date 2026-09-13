@@ -84,9 +84,21 @@ The rebrand and the preceding audit closed most of this phase. Verified in the t
 The smallest thing that can be tested end to end with no hardware and no LLM.
 `robot/__init__.py` and `robot/protocol/` already exist and set the pattern.
 
-**Build:** **robot/config.py**, **robot/logging.py**, **robot/events/**, **robot/state/**
+**Build:** **robot/config.py**, `robot/logging.py`, `robot/events/`, `robot/state/`
 (world model + freshness), **robot/simulator/** (a fake device that speaks the WebSocket
 session protocol and device MCP), and tests under `tests/robot/`.
+
+**Delivered** (see [robot-domain.md](robot-domain.md)): `robot/state/` (frozen domain models,
+an age on every timestamped entry, `StaleStateError`, `RobotStateStore` plus an in-memory
+implementation), `robot/events/` (typed events and a bounded drop-oldest async bus),
+`robot/logging.py` (stdlib logging bridged into the server's sinks from `app.py`), and the
+`tests/robot/` suite that covers them — including the subprocess test that proves `import
+robot` needs no config file and pulls in no `core` module.
+
+**Still open:** a robot config file and schema (**robot/config.py**), typed robot protocol
+messages with a version field and acks, and the simulator. The fake device in
+`tests/robot/conftest.py` covers the MCP half of what the simulator is for, but it does not
+speak the WebSocket session protocol; `scripts/smoke_check.py` does that for the handshake.
 
 **Key constraints** (robot-architecture §4.1, §7):
 
@@ -134,10 +146,22 @@ session protocol and device MCP), and tests under `tests/robot/`.
 
 Attach to the session server. First code that touches inherited files.
 
-**Build:** **robot/devices/**, **plugins/robot_bridge/**. Spend the 2-line
+**Build:** `robot/devices/`, **plugins/robot_bridge/**. Spend the 2-line
 `core/connection.py` budget: attach inside `ConnectionHandler.handle_connection` next to
 the existing `register_plugins_to_conn(self)` call, detach in that method's `finally`
 block, both `try/except`-wrapped.
+
+**Delivered**: `robot/devices/` (the robot registry, the tool and capability registries and
+MCP capability discovery), `robot/runtime.py` (the control plane) and `robot/session.py` (the
+seam, which swallows its own failures instead of wrapping every call site). The
+`core/connection.py` budget is spent: one import plus an `await` at each end of
+`handle_connection`. Registration, reconnect, supersede and teardown are covered by
+`tests/robot/test_registry.py` and `tests/robot/test_session.py`.
+
+**Still open:** the bridge plugin under **plugins/robot_bridge/** (nothing is registered with
+the LLM yet, which is Phase 4), the weak-reference behaviour of the registry (state is held by
+the store, not by a reference to the connection), and the compatibility regression test that
+runs a full voice turn with the robot subsystem loaded.
 
 **Key constraints** (robot-architecture §4.1, §4.2, R1–R5):
 

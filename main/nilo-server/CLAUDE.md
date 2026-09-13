@@ -5,6 +5,7 @@ source of truth; read them before touching anything:
 
 * [`docs/architecture.md`](../../docs/architecture.md) — how the server works today
 * [`docs/robot-architecture.md`](../../docs/robot-architecture.md) — where robot code goes and the safety rule
+* [`docs/robot-domain.md`](../../docs/robot-domain.md) — the robot domain layer that is implemented
 * [`docs/development.md`](../../docs/development.md) — setup, lint, tests, layout
 * [`docs/upstream.md`](../../docs/upstream.md) — which code is inherited and how it is synced
 * [`docs/branding.md`](../../docs/branding.md) — naming rules (no product name in domain code, no Chinese)
@@ -16,7 +17,8 @@ app.py            entry point
 config/           YAML layering, NILO_* env overrides, placeholders, logging   (inherited, edited)
 core/             session server, handlers, providers, tool system            (inherited — minimise edits)
 plugins*/         interceptor plugins and @register_function tools             (inherited)
-robot/            Nilo-owned code; robot/protocol holds the nilo + legacy route registry
+robot/            Nilo-owned code: protocol/ (routes), state/ (models + store), events/ (bus),
+                  devices/ (robot registry, MCP capability discovery), runtime.py, session.py
 tests/            pytest; tests/conftest.py points NILO_CONFIG at tests/fixtures/test_config.yaml
 ```
 
@@ -34,7 +36,7 @@ Rules of thumb:
 ```bash
 python3.12 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt   # full; on macOS vosk is skipped automatically
-pytest -q                 # 124 tests with full deps; the dev slice (requirements-dev.txt only) skips heavy ones
+pytest -q                 # 232 tests with full deps; the dev slice (requirements-dev.txt only) skips heavy ones
 ruff check .
 mypy                      # robot/ only, strict
 python app.py             # needs data/.config.yaml or NILO_CONFIG=<file>; see docs/getting-started.md
