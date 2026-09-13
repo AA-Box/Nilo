@@ -2,6 +2,8 @@
 __pycache__
 *.pyc
 .env
-Dockerfile
-tmp/
-data/
+.venv
+Dockerfile*
+docs/
+main/nilo-server/tmp/
+main/nilo-server/data/

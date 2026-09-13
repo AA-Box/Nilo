@@ -1,0 +1,56 @@
+{
+  "des": [
+    "Create a .mcp_server_settings.json file in the data directory. You can pick from the MCP servers below or add your own.",
+    "Useful MCP servers will keep being tested and added over time; contributions are welcome.",
+    "Remember to remove comment lines; the des property is documentation only and is not parsed.",
+    "The des and link properties only document how to install a server and point to its original link; they are optional.",
+    "Three transport modes are supported: stdio (standard input/output), sse (Server-Sent Events) and streamable-http (streamable HTTP)."
+  ],
+  "mcpServers": {
+    "Home Assistant": {
+      "command": "mcp-proxy",
+      "args": [
+        "http://YOUR_HA_HOST/mcp_server/sse"
+      ],
+      "env": {
+        "API_ACCESS_TOKEN": "YOUR_API_ACCESS_TOKEN"
+      }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/username/Desktop",
+        "/path/to/other/allowed/dir"
+      ],
+      "link":"https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem"
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@executeautomation/playwright-mcp-server"],
+      "des" : "run 'npx playwright install' first",
+      "link": "https://github.com/executeautomation/mcp-playwright"
+    },
+    "windows-cli": {
+      "command": "npx",
+      "args": ["-y", "@simonb97/server-win-cli"],
+      "link": "https://github.com/SimonB97/win-cli-mcp-server"
+    },
+    "sse-mcp-server": {
+      "url": "http://localhost:8080/sse",
+      "headers": {
+        "Authorization": "Bearer YOUR TOKEN"
+      },
+      "des": "Uses the SSE transport (default)"
+    },
+    "streamable-http-mcp-server": {
+      "url": "http://localhost:8000/mcp",
+      "transport": "streamable-http",
+      "headers": {
+        "Authorization": "Bearer YOUR TOKEN"
+      },
+      "des": "Uses the Streamable HTTP transport, suited to production web deployments"
+    }
+  }
+}

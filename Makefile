@@ -1,31 +1,39 @@
-.PHONY: test test-fast test-python test-java test-web lint lint-python typecheck help
+.PHONY: help test lint typecheck check-docs run compose-validate docker-build smoke
+
+SERVER := main/nilo-server
+PY ?= python
 
 help:
-	@echo "make test-fast   - run all fast unit tests (default)"
-	@echo "make test        - alias for test-fast"
-	@echo "make test-python - pytest in main/xiaozhi-server"
-	@echo "make test-java   - mvn test in main/manager-api"
-	@echo "make test-web    - npm run test:unit in main/manager-web"
-	@echo "make lint        - ruff check in main/xiaozhi-server"
-	@echo "make typecheck   - mypy on main/xiaozhi-server/robot (no-op until it exists)"
+	@echo "make test             - pytest in $(SERVER) (works with requirements-dev.txt alone)"
+	@echo "make lint             - ruff check"
+	@echo "make typecheck        - mypy on $(SERVER)/robot"
+	@echo "make check-docs       - validate docs links, paths, env vars and branding"
+	@echo "make run              - start nilo-server locally (needs requirements.txt)"
+	@echo "make compose-validate - docker compose config"
+	@echo "make docker-build     - build base + server images locally"
+	@echo "make smoke            - hit a running server's OTA/WebSocket routes (HOST, WS_PORT, HTTP_PORT)"
 
-test: test-fast
+test:
+	cd $(SERVER) && $(PY) -m pytest -q
 
-test-fast: test-python test-java test-web
-
-test-python:
-	cd main/xiaozhi-server && python -m pytest -x -q
-
-test-java:
-	cd main/manager-api && mvn -B -q test -DfailIfNoTests=false
-
-test-web:
-	cd main/manager-web && npm ci --no-audit --no-fund && npm test
-
-lint: lint-python
-
-lint-python:
-	cd main/xiaozhi-server && ruff check .
+lint:
+	cd $(SERVER) && ruff check .
 
 typecheck:
-	cd main/xiaozhi-server && if [ -d robot ]; then mypy; else echo "robot/ does not exist yet"; fi
+	cd $(SERVER) && mypy
+
+check-docs:
+	$(PY) scripts/check_docs.py
+
+run:
+	cd $(SERVER) && $(PY) app.py
+
+compose-validate:
+	cd $(SERVER) && docker compose -f docker-compose.yml config --quiet && echo "docker-compose.yml OK"
+
+docker-build:
+	docker build -f Dockerfile-server-base -t ghcr.io/aa-box/nilo-server:base .
+	docker build -f Dockerfile-server -t ghcr.io/aa-box/nilo-server:latest .
+
+smoke:
+	$(PY) scripts/smoke_check.py --host $${HOST:-127.0.0.1} --ws-port $${WS_PORT:-8000} --http-port $${HTTP_PORT:-8003}

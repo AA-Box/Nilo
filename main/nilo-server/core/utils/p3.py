@@ -1,0 +1,59 @@
+import struct
+
+def decode_opus_from_file(input_file):
+    """
+    Decode Opus data from a p3 file and return the list of Opus packets and the total duration.
+    """
+    opus_datas = []
+    total_frames = 0
+    sample_rate = 16000  # file sample rate
+    frame_duration_ms = 60  # frame duration
+    frame_size = int(sample_rate * frame_duration_ms / 1000)
+
+    with open(input_file, 'rb') as f:
+        while True:
+            # Read the 4-byte header: [1 byte type, 1 byte reserved, 2 bytes length]
+            header = f.read(4)
+            if not header:
+                break
+
+            # Unpack the header
+            _, _, data_len = struct.unpack('>BBH', header)
+
+            # Read the Opus data of the length given in the header
+            opus_data = f.read(data_len)
+            if len(opus_data) != data_len:
+                raise ValueError(f"Data length({len(opus_data)}) mismatch({data_len}) in the file.")
+
+            opus_datas.append(opus_data)
+            total_frames += 1
+
+    # Compute total duration
+    total_duration = (total_frames * frame_duration_ms) / 1000.0
+    return opus_datas, total_duration
+
+def decode_opus_from_bytes(input_bytes):
+    """
+    Decode Opus data from p3 bytes and return the list of Opus packets and the total duration.
+    """
+    import io
+    opus_datas = []
+    total_frames = 0
+    sample_rate = 16000  # file sample rate
+    frame_duration_ms = 60  # frame duration
+    frame_size = int(sample_rate * frame_duration_ms / 1000)
+
+    f = io.BytesIO(input_bytes)
+    while True:
+        header = f.read(4)
+        if not header:
+            break
+        _, _, data_len = struct.unpack('>BBH', header)
+        opus_data = f.read(data_len)
+        if len(opus_data) != data_len:
+            raise ValueError(f"Data length({len(opus_data)}) mismatch({data_len}) in the bytes.")
+        opus_datas.append(opus_data)
+        total_frames += 1
+
+    total_duration = (total_frames * frame_duration_ms) / 1000.0
+    return opus_datas, total_duration

@@ -1,0 +1,27 @@
+"""Tool executor base class."""
+
+from abc import ABC, abstractmethod
+from typing import Dict, Any
+from .tool_types import ToolDefinition
+from plugins_func.register import ActionResponse
+
+
+class ToolExecutor(ABC):
+    """Abstract base class for tool executors."""
+
+    @abstractmethod
+    async def execute(
+        self, conn, tool_name: str, arguments: Dict[str, Any]
+    ) -> ActionResponse:
+        """Execute a tool call."""
+        pass
+
+    @abstractmethod
+    def get_tools(self) -> Dict[str, ToolDefinition]:
+        """Return all tools managed by this executor."""
+        pass
+
+    @abstractmethod
+    def has_tool(self, tool_name: str) -> bool:
+        """Check whether the named tool exists."""
+        pass
