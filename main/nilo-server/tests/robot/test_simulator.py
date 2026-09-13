@@ -354,6 +354,7 @@ def test_every_requested_capability_is_published() -> None:
         "robot.motion.move",
         "robot.motion.turn",
         "robot.motion.stop",
+        "robot.follow.target",
         "robot.head.set_angle",
         "robot.head.look_at",
         "robot.lift.set_position",
@@ -662,7 +663,7 @@ def test_the_status_payload_names_everything_a_human_needs() -> None:
     status = robot.status()
     assert status["robot_id"] == robot.config.robot_id
     assert status["connected"] is False
-    assert len(status["tools"]) == 15
+    assert len(status["tools"]) == 16
     assert set(status["robot"]) >= {"pose", "battery", "sensors"}
     assert status["scenario"]["name"] == "idle"
     assert "camera_failure" in status["faults"]

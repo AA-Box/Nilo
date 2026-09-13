@@ -23,7 +23,7 @@ from enum import Enum
 from typing import Any
 from uuid import uuid4
 
-from robot.simulator.world import World, _wrap
+from robot.simulator.world import World, _bearing, _wrap
 
 #: Robot geometry and rates. Every one of these is a calibration knob on real hardware
 #: (docs/robot-roadmap.md Phase 8), so they are fields on a config object, not constants.
@@ -34,6 +34,9 @@ DEFAULT_MAX_TURN_DPS = 180
 class MotionKind(str, Enum):
     MOVE = "move"
     TURN = "turn"
+    #: Closed-loop tracking of a person in the world. Firmware's job on real hardware,
+    #: which is why the backend names a target and a deadline rather than steering.
+    FOLLOW = "follow"
 
 
 class MotionOutcome(str, Enum):
@@ -44,6 +47,7 @@ class MotionOutcome(str, Enum):
     MOTOR_FAILURE = "motor_failure"
     BATTERY_EMPTY = "battery_empty"
     SUPERSEDED = "superseded"
+    TARGET_LOST = "target_lost"
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,9 +68,12 @@ class MotionResult:
 class _Motion:
     action_id: str
     kind: MotionKind
-    remaining: float  # metres for MOVE, radians for TURN
-    speed: float  # m/s for MOVE, rad/s for TURN
+    remaining: float  # metres for MOVE, radians for TURN, seconds for FOLLOW
+    speed: float  # m/s for MOVE, rad/s for TURN, m/s for FOLLOW
     sign: float  # +1 forward / left, -1 backward / right
+    #: FOLLOW only: who is being tracked, and how close to get before holding station.
+    target_id: str = ""
+    stop_distance_m: float = 0.6
 
 
 @dataclass(slots=True)
@@ -163,6 +170,30 @@ class RobotSimState:
         self.motion = _Motion(action_id=action_id, kind=kind, remaining=remaining, speed=speed, sign=sign)
         return action_id, superseded
 
+    def start_follow(
+        self, target_id: str, duration_ms: int, stop_distance_mm: int, speed_mmps: int | None = None
+    ) -> tuple[str, MotionResult | None]:
+        """Begin following a person for a bounded time.
+
+        ``remaining`` is seconds here rather than metres: a follow terminates on its
+        deadline, not on a distance, because the target moves.
+        """
+        speed = min(abs(speed_mmps or 200), self.profile.max_speed_mmps) or self.profile.max_speed_mmps
+        superseded = self._end_motion(MotionOutcome.SUPERSEDED, "replaced by a new motion command")
+        action_id = uuid4().hex[:12]
+        if duration_ms <= 0:
+            return action_id, superseded
+        self.motion = _Motion(
+            action_id=action_id,
+            kind=MotionKind.FOLLOW,
+            remaining=duration_ms / 1000.0,
+            speed=speed / 1000.0,
+            sign=1.0,
+            target_id=target_id,
+            stop_distance_m=stop_distance_mm / 1000.0,
+        )
+        return action_id, superseded
+
     def stop(self, detail: str = "stop requested") -> MotionResult | None:
         """Cancel the motion in flight, if any."""
         return self._end_motion(MotionOutcome.CANCELLED, detail)
@@ -205,6 +236,8 @@ class RobotSimState:
             return self._end_motion(MotionOutcome.MOTOR_FAILURE, "drive motors reported a fault")
         if self.battery_pct <= 0.0:
             return self._end_motion(MotionOutcome.BATTERY_EMPTY, "battery is empty")
+        if motion.kind is MotionKind.FOLLOW:
+            return self._step_follow(motion, dt_s, world)
         travelled = min(motion.remaining, motion.speed * dt_s)
         if motion.kind is MotionKind.TURN:
             self.yaw_rad = _wrap(self.yaw_rad + motion.sign * travelled)
@@ -216,6 +249,32 @@ class RobotSimState:
             self.x_m += math.cos(self.yaw_rad) * motion.sign * travelled
             self.y_m += math.sin(self.yaw_rad) * motion.sign * travelled
         motion.remaining -= travelled
+        if motion.remaining <= 1e-9:
+            return self._end_motion(MotionOutcome.COMPLETED, "")
+        return None
+
+    def _step_follow(self, motion: _Motion, dt_s: float, world: World) -> MotionResult | None:
+        """One tick of closed-loop following: aim at the target, close the gap, hold station.
+
+        Deliberately simple — turn towards the bearing, drive while further away than the
+        stop distance, stop moving when inside it. It is a plausible firmware behaviour,
+        not a controller: the point is that the backend never sees any of this.
+        """
+        person = world.people.get(motion.target_id)
+        if person is None:
+            return self._end_motion(MotionOutcome.TARGET_LOST, f"target {motion.target_id} is not in view")
+        motion.remaining -= dt_s
+        distance_m, bearing_rad = _bearing(self.x_m, self.y_m, self.yaw_rad, person.x_m, person.y_m)
+        turn_rate = math.radians(self.profile.max_turn_dps) * dt_s
+        self.yaw_rad = _wrap(self.yaw_rad + max(-turn_rate, min(turn_rate, bearing_rad)))
+        if distance_m > motion.stop_distance_m and abs(bearing_rad) < math.radians(30):
+            step = min(motion.speed * dt_s, distance_m - motion.stop_distance_m)
+            blocked = self._blocked_ahead(world, step)
+            if blocked is not None:
+                outcome, detail = blocked
+                return self._end_motion(outcome, detail)
+            self.x_m += math.cos(self.yaw_rad) * step
+            self.y_m += math.sin(self.yaw_rad) * step
         if motion.remaining <= 1e-9:
             return self._end_motion(MotionOutcome.COMPLETED, "")
         return None
@@ -277,7 +336,7 @@ class RobotSimState:
     @property
     def linear_speed_mps(self) -> float:
         motion = self.motion
-        if motion is None or motion.kind is not MotionKind.MOVE:
+        if motion is None or motion.kind not in (MotionKind.MOVE, MotionKind.FOLLOW):
             return 0.0
         return motion.speed * motion.sign
 

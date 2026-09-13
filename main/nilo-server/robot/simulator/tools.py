@@ -56,6 +56,8 @@ class ToolHost(Protocol):
 
     def command_turn(self, angle_deg: int, speed_dps: int) -> str: ...
 
+    def command_follow(self, target_id: str, duration_ms: int, stop_distance_mm: int) -> str: ...
+
     def command_stop(self) -> None: ...
 
     async def capture_frame(self, question: str | None) -> dict[str, Any]: ...
@@ -151,6 +153,28 @@ async def _turn(host: ToolHost, args: dict[str, Any]) -> ToolReply:
             "angle_deg": angle_deg,
             "speed_dps": speed_dps,
             "eta_ms": int(abs(angle_deg) / speed_dps * 1000),
+        }
+    )
+
+
+async def _follow(host: ToolHost, args: dict[str, Any]) -> ToolReply:
+    """Track a person for a bounded time. Closed-loop, and entirely device-side."""
+    target_id = str(args.get("target_id", "")).strip()
+    if not target_id:
+        return ToolReply({"error": "target_id is required"}, is_error=True)
+    if target_id not in host.world.people:
+        return ToolReply({"error": f"no target named {target_id!r} is in view"}, is_error=True)
+    duration_ms = _int(args, "duration_ms", 5000, low=100, high=60000)
+    stop_distance_mm = _int(args, "stop_distance_mm", 600, low=100, high=3000)
+    action_id = host.command_follow(target_id, duration_ms, stop_distance_mm)
+    return ToolReply(
+        {
+            "accepted": True,
+            "action_id": action_id,
+            "state": "following",
+            "target_id": target_id,
+            "duration_ms": duration_ms,
+            "stop_distance_mm": stop_distance_mm,
         }
     )
 
@@ -327,6 +351,30 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
             },
         },
         required=("angle_deg",),
+    ),
+    ToolSpec(
+        name="robot.follow.target",
+        description=(
+            "Follow a tracked target for a bounded time, keeping it framed. Returns immediately "
+            "with an action_id; completion arrives as a notification when the time is up, the "
+            "target is lost or something blocks the path."
+        ),
+        handler=_follow,
+        properties={
+            "target_id": {
+                "type": "string",
+                "description": "Identifier of a target the robot can currently see, for example person-1.",
+            },
+            "duration_ms": {
+                "type": "integer",
+                "description": "How long to follow, 100 to 60000 milliseconds. Default 5000.",
+            },
+            "stop_distance_mm": {
+                "type": "integer",
+                "description": "How close to get before holding station, 100 to 3000 mm. Default 600.",
+            },
+        },
+        required=("target_id",),
     ),
     ToolSpec(
         name="robot.motion.stop",

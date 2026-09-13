@@ -64,7 +64,7 @@ The server's view of the same robot appears in its log:
 
 ```
 robot nilo-sim-01 registered (device=nilo-sim-01 session=... reconnect=False)
-robot nilo-sim-01: 15 tool(s) discovered (15 new, 0 malformed)
+robot nilo-sim-01: 16 tool(s) discovered (16 new, 0 malformed)
 ```
 
 There is no management API yet — that is Phase 7 of [robot-roadmap.md](robot-roadmap.md) —
@@ -106,7 +106,7 @@ for the robot half of the protocol.
 
 ## 3. The tool table
 
-Fifteen tools, published under dotted names. The server sanitizes each name for the LLM
+Sixteen tools, published under dotted names. The server sanitizes each name for the LLM
 function namespace (`robot.motion.move` becomes `robot_motion_move`) and calls back with
 the original, which is exactly the round trip a real device exercises.
 
@@ -116,6 +116,7 @@ the original, which is exactly the round trip a real device exercises.
 | `robot.motion.move` | `distance_mm` (-2000…2000, required), `speed_mmps` (20…400, default 200) | `action_id` immediately; completion arrives as a notification |
 | `robot.motion.turn` | `angle_deg` (-360…360, required, positive turns left), `speed_dps` (10…180, default 90) | `action_id` immediately |
 | `robot.motion.stop` | — | The `action_id` it cancelled |
+| `robot.follow.target` | `target_id` (required), `duration_ms` (100…60000, default 5000), `stop_distance_mm` (100…3000, default 600) | `action_id` immediately; the device tracks the target itself and reports completion as a notification |
 | `robot.head.set_angle` | `pitch_deg` (-25…40), `yaw_deg` (-90…90) | The angles after clamping |
 | `robot.head.look_at` | `x_pct`, `y_pct` (0…100, required) | The head angles that aim at that spot in the camera frame |
 | `robot.lift.set_position` | `height_pct` (0…100, required) | The lift height |
@@ -173,8 +174,8 @@ so nothing is waiting for a reply:
 | `notifications/motion_completed` | A motion finished on its own | `action_id`, `kind`, and the pose it finished at |
 | `notifications/motion_failed` | A motion ended without finishing | `action_id`, `kind`, `reason`, `detail`, and the sensors for a cliff or obstacle |
 
-`reason` is one of `cancelled`, `obstacle`, `cliff`, `motor_failure`, `battery_empty` or
-`superseded`.
+`reason` is one of `cancelled`, `obstacle`, `cliff`, `motor_failure`, `battery_empty`,
+`superseded` or `target_lost`.
 
 ### The backend side
 
@@ -243,9 +244,19 @@ A motion ends early, as `notifications/motion_failed`, when:
 * a cliff sensor asserts — `cliff`
 * the motors are made to fail — `motor_failure`
 * the battery reaches zero — `battery_empty`
+* a follow's target leaves the world — `target_lost`
 
 Collision is tested against the *leading edge* of the chassis, not its centre, so the robot
 stops when its bumper reaches the obstacle.
+
+### Following
+
+`robot.follow.target` is the one motion that is closed-loop rather than open-loop, and it is
+modelled that way on purpose: the backend names a target and a deadline, and the *device*
+turns towards the bearing each tick, drives while it is further away than `stop_distance_mm`,
+and holds station inside it. It terminates on its deadline, not on a distance, because the
+target moves. Everything the backend can see is an `action_id` and, eventually, a
+notification — which is exactly how much a real robot would tell it.
 
 ---
 
@@ -358,6 +369,7 @@ Steps, and the arguments they take (distances in millimetres, angles in degrees)
 | `move` | `distance_mm`, `speed_mmps` |
 | `turn` | `angle_deg`, `speed_dps` |
 | `stop` | — |
+| `follow` | `target_id`, `duration_ms`, `stop_distance_mm` |
 | `set_expression` | `emotion`, `intensity_pct` |
 | `play_animation` | `name`, `duration_s` |
 | `set_picked_up` | `picked_up` |
@@ -380,6 +392,7 @@ from a `fault` step mid-run.
 | `--motor-failure` | `motor_failure` | Any motion in flight ends as `motor_failure` |
 | `--camera-failure` | `camera_failure` | `robot.camera.capture` fails instead of returning a frame |
 | `--drop-notifications` | `drop_notifications` | Telemetry stops; the session stays up and looks healthy |
+| `--drop-motion-completion` | `drop_motion_completion` | Telemetry keeps flowing and the motion really happens, but its `motion_completed` / `motion_failed` notification is never sent. The narrower version of the fault above, and the only way to exercise the backend action watchdog on a live, healthy link |
 | `--disconnect-at SEC` | `disconnect_at_s` | Aborts the TCP connection with no close frame, the way a robot losing power does |
 | `--no-reconnect` | `reconnect: false` | Exit instead of redialling a dropped link |
 
@@ -390,6 +403,9 @@ changes, added with `--obstacle` / `--cliff` or a scenario step.
 ```bash
 # The server's tool timeout, exercised end to end
 python -m robot.simulator --tool-timeout robot.get_status
+
+# A healthy-looking robot whose motions never report back: the action watchdog's job
+python -m robot.simulator --drop-motion-completion
 
 # A robot that goes away mid-scenario and comes back
 python -m robot.simulator --scenario obstacle_during_move --disconnect-at 6 --reconnect-delay 1

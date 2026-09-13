@@ -185,6 +185,11 @@ class SimulatedRobot:
         self._record(superseded)
         return action_id
 
+    def command_follow(self, target_id: str, duration_ms: int, stop_distance_mm: int) -> str:
+        action_id, superseded = self.state.start_follow(target_id, duration_ms, stop_distance_mm)
+        self._record(superseded)
+        return action_id
+
     def command_stop(self) -> None:
         self._record(self.state.stop())
 
@@ -491,6 +496,17 @@ class SimulatedRobot:
 
     async def _drain_motion_results(self) -> None:
         results, self._motion_results = self._motion_results, []
+        if self.faults.drop_motion_completion:
+            # The motion still happens; the server is simply never told it ended. This is
+            # what a firmware bug or a lost frame looks like from the backend, and it is
+            # the only way to exercise the action watchdog on a live, healthy session.
+            if results:
+                logger.warning(
+                    "simulator %s: swallowing %d motion completion(s) (injected fault)",
+                    self.config.robot_id,
+                    len(results),
+                )
+            return
         for result in results:
             params: dict[str, Any] = {
                 "action_id": result.action_id,

@@ -10,18 +10,25 @@ Read the split literally:
   right now. It is all *session* safety: who may connect and on which paths, which secrets
   are usable, which files may be downloaded, and how long anything is allowed to take.
   There is no actuation in this code path, so none of it is motion safety.
-* [Planned](#planned) — the motion-safety design. **None of it exists in the tree.** The
-  only `robot/` code that exists is `robot/protocol/`; there is no `robot/safety/`,
-  `robot/actions/`, `robot/state/`, watchdog, or emergency stop. Do not connect a machine
-  that can hurt someone to this server and rely on the backend to stop it.
+* [Motion safety](#motion-safety) — the action and safety layers, which **now exist**:
+  `robot/actions/` and `robot/safety/` hold the lifecycle, the resource ledger, the
+  deterministic policy, the emergency-stop latch and the supervisory watchdog (Phase 3). It
+  is a *policy filter*. It rejects and supervises; it does not guarantee.
+* [The firmware contract](#the-firmware-contract) — what the robot must implement itself,
+  independently, and what each of those protections does when this process dies. Read it
+  before connecting a machine that can hurt someone. **Backend safety is a second layer
+  only.**
 
-The design rule that both halves serve, stated once:
+The design rule that all of it serves, stated once:
 
-> **The backend is the weaker of two safety layers.** It clamps and rejects; it never
+> **The backend is the weaker of two safety layers.** It rejects and supervises; it never
 > guarantees. Every guarantee — collision avoidance, cliff detection, acceleration limits,
 > the dead-man watchdog, emergency stop — belongs in firmware, because the Python process
 > can be killed, stalled, or disconnected at any instant. The reasons are specific and
 > documented in [Why the backend cannot guarantee real time](#why-the-backend-cannot-guarantee-real-time).
+
+Nothing that follows softens that. The backend layer being implemented makes it a *better*
+first filter; it does not make it a second guarantee.
 
 ---
 
@@ -105,8 +112,9 @@ These are properties of the current code, not recommendations:
   Anyone who can reach the HTTP port can therefore obtain a WebSocket credential for a
   device id of their choosing. Do not expose the OTA port to an untrusted network.
 * **An authenticated session is not an authorization to actuate.** Nothing in the current
-  code distinguishes "this device may talk" from "this device may move". That distinction
-  is part of the planned action layer.
+  code distinguishes "this device may talk" from "this device may move". The action layer
+  gates *what* may be commanded and under which conditions ([Motion safety](#motion-safety));
+  it does not authorise a device, and per-robot actuation authorisation remains unbuilt.
 * **CORS is fully open** on every HTTP handler: `Access-Control-Allow-Origin: *` with
   `Allow-Credentials: true` (`core/api/base_handler.py:BaseHandler._add_cors_headers`).
 * **There is no session registry.** `ConnectionHandler` is a local variable in
@@ -289,65 +297,94 @@ enforces limits if it is reachable from anywhere you do not control. See [deploy
 
 ---
 
-# Planned
+# Motion safety
 
-Everything below is **design, not code**. It is the intended content of `robot/safety/` and
-the firmware contract around it; the sequencing lives in
-[robot-roadmap.md](robot-roadmap.md) (safety policy is Phase 3) and the layering in
-[robot-architecture.md](robot-architecture.md). Nothing here is implemented, and no part of
-it should be described as working.
+Everything below **exists in the tree** as of Phase 3: `main/nilo-server/robot/actions/`
+and `main/nilo-server/robot/safety/`. The reference for how to use it is
+[robot-actions.md](robot-actions.md); this section is the safety argument.
 
 ```mermaid
 flowchart TB
     subgraph BE["Backend — nilo-server (policy, not guarantee)"]
-        LLM["LLM / behaviour / API request"] --> V["robot/safety: validate + clamp<br/>bounds, allow-list, rate limit"]
+        LLM["LLM / behaviour / API request"] --> V["robot/safety: admit or reject<br/>bounds, allow-list, sensors, rate, TTL"]
         V -->|reject| R["typed rejection to the caller"]
         V -->|accept| Q["robot/actions: queue, resource claims"]
-        Q --> DISP["dispatch with an explicit short timeout"]
+        Q --> V2["re-evaluate at dispatch"]
+        V2 --> DISP["dispatch with an explicit 2 s timeout"]
+        WD["watchdog thread<br/>deadlines · supervisory sweep"] -.->|TIMED_OUT + attempt a stop| Q
     end
     DISP -.->|semantic request over the network| FW
     subgraph FW["Firmware — on the robot (guarantee)"]
         TR["trajectory generation, motor control"]
         LIM["acceleration and velocity limits"]
         SENS["collision and cliff avoidance"]
-        WD["watchdog: stop on loss of heartbeat"]
+        WD2["watchdog: stop on loss of heartbeat"]
         ES["emergency stop, executed locally"]
+        TH["current and thermal protection"]
     end
 ```
 
-## Backend safety boundaries
+## What the backend layer does
 
-`robot/safety/` is planned as a **policy filter** in front of every dispatch, applied
-identically no matter who asked — LLM, behaviour engine, or management API:
+`robot/safety/policy.py` is a **deterministic** filter applied identically no matter who
+asked — LLM, behaviour engine, management API. It is a pure function of its arguments: no
+clock is read inside it, no counter is held, no global is consulted. The current instant,
+how long a request has waited and how many motions were admitted recently all arrive in a
+`SafetyContext`, which is what makes a decision replayable after an incident.
 
 * **Bounded parameters.** Distance, angle, speed and duration are validated against
-  configured limits. A request beyond a limit is `REJECTED` with a typed reason that reaches
-  the caller, not silently clamped to the maximum — silent clamping hides a bug that will
-  eventually matter.
-* **Allow-lists, not deny-lists.** Only the semantic actions a robot's capability record
-  declares are dispatchable; an unknown action is rejected rather than forwarded.
+  configured limits. A request beyond a limit is `REJECTED` with a typed reason **and the
+  number that failed**, not silently clamped to the maximum — silent clamping hides the bug
+  that produced a 40-metre "move" until the day the ceiling is wrong.
+* **Allow-lists, not deny-lists.** Only the tools a robot's discovered capability record
+  actually publishes are dispatchable. A robot that has not finished discovery can do
+  nothing, rather than everything.
 * **Rate limits per action class**, so a looping behaviour or a confused model cannot emit
   motion commands faster than the device can retire them.
-* **Sensor-state gating.** A drive request with a cliff sensor asserted is rejected
-  regardless of origin.
-* **Stop on disconnect, as an intent.** The backend cancels queued actions and attempts a
-  stop when a session drops. This is best effort by construction: if the link is gone, the
-  message cannot arrive. The guarantee is the firmware watchdog.
+* **Sensor-state gating.** A drive request with a cliff asserted is rejected regardless of
+  origin, as is one with the robot reporting itself off the ground, one whose sensor frame
+  is older than the freshness budget, and one where the robot has never reported sensors at
+  all. Forward motion additionally checks the bumper and the front distance reading;
+  reversing away from an obstacle stays allowed, because refusing it would strand the robot
+  against the thing it hit.
+* **Action TTL.** A request that waited longer than the configured TTL between submission
+  and dispatch is rejected rather than executed. A "come here" that sat twenty seconds
+  behind a queue is not the same request any more.
+* **Stop on disconnect, as an intent.** The executor cancels queued and running actions and
+  attempts a stop when a session drops. This is best effort *by construction*: if the link
+  is gone, the message cannot arrive, and the log says so rather than reporting success.
+  The guarantee is the firmware watchdog.
 * **No layer above may weaken it.** Personality and behaviour sit above safety and can only
-  narrow what is requested, never widen what is permitted.
+  narrow what is requested. `robot/safety/` imports `robot/state/` and nothing else from the
+  subsystem — it cannot reach the action machinery it judges, or behaviour and personality at
+  all. `tests/robot/test_layering.py` parses the source and asserts it.
 
-## Device safety boundaries
+Limits live in their own frozen model, constructed per runtime, optionally loaded from a
+small YAML file. **Not** in the server config dict: in manager-api mode the local config is
+replaced wholesale by the API response and only the `server` and `manager-api` blocks
+survive (`config/config_loader.py`), so a speed ceiling stored there would vanish in exactly
+the deployment with the most robots in it.
 
-The firmware owns everything that must be true even when the backend is absent:
+## The firmware contract
 
-| Firmware owns | Why it cannot live in the backend |
-|---|---|
-| Motor control, PWM, servo drive | the backend never speaks in actuator units |
-| Trajectory execution | requires a deterministic control loop |
-| Acceleration and velocity limits | must hold during a network stall |
-| Collision and cliff avoidance | sensor-to-stop latency must be bounded |
-| Dead-man watchdog | must fire *because* the backend went silent |
-| Emergency stop | must execute with no round trip |
+**Backend safety is a second layer only. Do not pretend network safety is sufficient.**
+
+The firmware must implement each of the following **independently**, with no dependency on
+the backend being alive, connected, or unpaused. The third column is not hypothetical: it is
+what actually happens the instant this Python process stops running.
+
+| Firmware must implement | Why it cannot live in the backend | What happens when the Python process dies |
+|---|---|---|
+| **Cliff protection** | sensor-to-stop latency must be bounded, and a network round trip is not | The backend stops rejecting moves. Nothing else changes — the robot must already refuse to drive off an edge on its own sensors, mid-command. |
+| **Motor watchdog** | it must fire *because* the backend went silent | No heartbeat arrives. The motors must stop on their own timer; the last command must not continue to completion. |
+| **Current / thermal protection** where the hardware exposes it | the backend never speaks in amps or degrees, and cannot react in a control loop | No supervision from this side at all. There is no telemetry path to a dead process, and nothing here was ever fast enough anyway. |
+| **Physical motion bounds** | the mechanical envelope is a property of the machine, not of a config file | The configured ceilings stop being applied. The mechanical stops and the firmware's own bounds are the only ones left. |
+| **Acceleration constraints** | they must hold during a network stall, within a deterministic control loop | Unenforced from here at *any* time, alive or dead — the backend commands a destination, never a trajectory. |
+| **Local emergency stop** | it must execute with no round trip | The latch in this process is gone, along with every queued action it was refusing. A physical or firmware stop must still work. |
+
+So cliff avoidance, collision avoidance, acceleration limits, the watchdog and e-stop are
+implemented **twice**, and the firmware copy fails safe on loss of heartbeat — not on a
+Python cleanup callback that may never run.
 
 ### Why the backend cannot guarantee real time
 
@@ -364,62 +401,76 @@ Three properties of the current process, each verifiable in the tree today:
    hold the GIL for as long as they take. VAD inference runs on the loop itself
    (`conn.vad.is_vad` in `core/handle/receiveAudioHandle.py:handleAudioMessage`), as do
    several blocking provider calls.
-3. **In-flight device calls cannot be cancelled.** As described above, a pending
-   `call_mcp_tool` future is not rejected when the socket drops and no abort message exists
-   for a device-side tool call.
+3. **In-flight device calls cannot be cancelled.** A pending `call_mcp_tool` future is not
+   rejected when the socket drops, and no abort message exists for a device-side tool call.
+   The action layer marks such an action `TIMED_OUT` and attempts a stop; it cannot recall
+   the command the device already accepted.
 
-A stop that depends on any of those three is not a stop. It is a hope.
+A stop that depends on any of those is not a stop. It is a hope.
+
+Note that the backend watchdog runs on **its own thread** precisely because of point 2 —
+and that this still does not make it authoritative. The GIL stalls that thread too, and a
+killed process supervises nothing at all.
 
 ## Network failure behaviour
 
-Planned split, once the action layer exists:
-
 * **Device:** the firmware watchdog stops motion when the session heartbeat lapses. This is
   the only mechanism that actually stops a robot, and it must be tested by severing the
-  link, not by mocking a clock.
+  link, not by mocking a clock. `tests/integration/test_actions_e2e.py` severs it.
 * **Backend:** a dropped session means **world state unknown**. Cached pose, sensor readings
-  and action status become stale with an explicit age; the server does not assume the robot
-  finished, stopped, or stayed where it was. On reconnect, state is re-synchronised from the
-  device rather than resumed from the cache.
+  and action status carry an explicit age; the server does not assume the robot finished,
+  stopped, or stayed where it was. Every action for that robot is cancelled — an observable
+  transition, not a silent drop — and a stop is attempted and logged honestly when it cannot
+  be delivered. On reconnect, state is re-synchronised from the device rather than resumed
+  from the cache.
 
 ## Motion command validation
 
-Every semantic request is checked before it is queued, and again before it is dispatched:
+Every semantic request is checked before it is queued, **and again before it is dispatched**,
+because the world changes while an action waits:
 
 * schema validation on typed models, with units in the parameter names (`distance_mm`,
-  `angle_deg`, `speed_mmps`) — the device MCP type system carries only booleans, integers
-  and strings, so a float parameter is a latent bug;
-* clamping and bounds checks against the configured limits and the current world state;
+  `angle_deg`, `speed_mmps`) — the device MCP type system carries only booleans, integers and
+  strings, so a float parameter is a latent bug, and a test enumerates every spec field to
+  keep one out;
+* bounds checks against the configured limits and the current world state, producing a
+  typed rejection rather than a clamped request;
 * resource claims over `DRIVE / HEAD / LIFT / DISPLAY / AUDIO / CAMERA`, so two actions
-  cannot drive the same hardware concurrently;
-* an explicit, short per-dispatch timeout, never the 30 s default;
+  cannot drive the same hardware concurrently — the ledger maps a resource to its single
+  owner, which *is* the mutual exclusion;
+* an explicit, short per-dispatch timeout (2 s), never the inherited 30 s default;
 * a lifecycle
   (`PENDING → STARTING → RUNNING → SUCCEEDED | FAILED | CANCELLED | TIMED_OUT | REJECTED`)
-  in which illegal transitions raise rather than being ignored.
+  in which illegal transitions **raise** rather than being ignored.
 
 ## Watchdogs
 
 Two, at different levels and with different authority:
 
 * **Firmware watchdog** — authoritative. Stops motion on loss of heartbeat. Fails safe.
-* **Backend watchdog** — supervisory. Detects actions that never report completion, marks
-  them `TIMED_OUT`, and attempts a stop. It must run on the robot subsystem's own loop or
-  thread, never on the session event loop, for the reasons above; a watchdog that shares a
+* **Backend watchdog** — supervisory, and implemented in `robot/safety/watchdog.py`. It arms
+  a deadline per action, marks an action that never reports completion `TIMED_OUT`, and
+  attempts a stop; a 500 ms sweep additionally cancels running motion when the link drops,
+  the heartbeat lapses, a cliff appears or sensor data goes stale. It runs on **its own
+  thread**, never the session event loop, for the reasons above — a watchdog that shares a
   loop with a garbage-collection pause is not a watchdog.
 
 ## Emergency stop
 
-Three rules, and they are non-negotiable in the design:
+Three rules, non-negotiable in the design and literal in the code:
 
 1. **Stop is always accepted.** It is never gated on authentication state, queue state,
-   capability negotiation, or whether another action is running.
-2. **Stop is never queued.** It bypasses the action queue entirely; anything else makes its
-   latency a function of queue depth.
+   capability negotiation, whether another action is running, or whether a sensor says
+   motion would be unsafe. A robot that will not stop because a cliff sensor is asserted is
+   exactly the wrong failure.
+2. **Stop is never queued.** It bypasses the action queue entirely, cancelling whatever
+   holds the drive; anything else makes its latency a function of queue depth.
 3. **Stop is executed locally.** The device stops on its own authority. A backend-originated
    stop is a request to do sooner what the watchdog would do anyway.
 
-From the management API, an emergency stop cancels every queued action and refuses new ones
-until it is explicitly cleared.
+`executor.emergency_stop(robot_id)` cancels every queued and running action and refuses new
+ones until it is explicitly cleared. The latch is sticky — no timeout lifts it, because a
+stop that expires on its own is a stop nobody decided to end.
 
 ## LLM restrictions
 
@@ -427,23 +478,29 @@ The language model is the least predictable source of action requests, so its su
 the narrowest:
 
 * **No raw actuator tools, ever.** No PWM, duty cycle, servo microseconds, wheel speed or
-  voltage appears in any tool schema the model can see. The tools are semantic
-  (`robot_move`, `robot_turn`, `robot_look_at`, `robot_stop`); a mechanical test enumerates
-  every registered schema against a raw-actuator denylist.
+  voltage appears in any action spec or tool schema the model can see. The vocabulary is
+  ten semantic actions; a test enumerates every spec field against a raw-actuator denylist.
+* **The LLM cannot override a safety rejection.** The policy's answer does not depend on the
+  source: `tests/robot/test_safety.py` parameterizes almost every rejection over all five
+  `ActionSource` values, and `tests/robot/test_executor.py` asserts that the same over-limit
+  request is refused identically whoever submits it. There is no path from an action request
+  to a cleared emergency stop.
 * **Namespacing.** Every robot tool is named `robot_*`. This matters because the tool
   namespace is flat and a collision only logs a warning before the later executor wins
   (`core/providers/tools/unified_tool_manager.py:ToolManager.get_all_tools`), with
-  device-advertised tools iterated after server plugins — so an unnamespaced guarded tool
-  could be shadowed by a raw device tool of the same name.
+  device-advertised tools iterated after server plugins.
 * **A startup collision assertion.** At session start the bridge asserts that no
-  device-advertised tool collides with a `robot_*` name and refuses loudly if one does.
-  Silence here is dangerous: `plugins/__init__.py:_import_module_safe` downgrades any plugin
-  import failure to a warning and continues, so a typo can disable a whole subsystem while
-  the server still looks healthy.
-* **A lint rule** prevents LLM-facing modules from importing motion primitives, so the
-  boundary is enforced by the build rather than by review.
+  device-advertised tool collides with a `robot_*` name and refuses loudly if one does. This
+  is Phase 4, with the bridge. Silence here is dangerous:
+  `plugins/__init__.py:_import_module_safe` downgrades any plugin import failure to a
+  warning and continues, so a typo can disable a whole subsystem while the server still
+  looks healthy.
+* **A layering rule** prevents LLM-facing modules from importing motion primitives, and
+  prevents safety from importing anything above it. `tests/robot/test_layering.py` parses
+  every module under `robot/` and enforces the import table of
+  [robot-architecture.md](robot-architecture.md) §7 mechanically.
 * **Tool handlers never block on hardware.** They validate, clamp, enqueue and return; the
   model is told what was accepted, not what the hardware finished doing.
 
-See [testing.md](testing.md) for how these are meant to be verified, and
-[robot-roadmap.md](robot-roadmap.md) for what has to land first.
+See [robot-actions.md](robot-actions.md) for the API, [testing.md](testing.md) for how these
+are verified, and [robot-roadmap.md](robot-roadmap.md) for what lands next.

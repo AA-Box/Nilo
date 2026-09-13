@@ -147,7 +147,7 @@ async def test_capabilities_are_discovered_over_mcp(backend: Backend, robot: Sim
     assert capabilities.malformed_tools == 0
     assert "robot_motion_move" in capabilities.tool_names
     assert "robot_camera_capture" in capabilities.tool_names
-    assert len(capabilities.tool_names) == 15
+    assert len(capabilities.tool_names) == 16
     # The device published dotted names; the server sanitizes and keeps the original.
     tool = capabilities.get_tool("robot_motion_move")
     assert tool is not None and tool.raw_name == "robot.motion.move"
@@ -159,7 +159,7 @@ async def test_capabilities_arrive_across_several_tool_pages(backend: Backend) -
     async with running(paged) as simulator:
         await simulator.wait_discovered(timeout=15)
         capabilities = await backend.wait_for(lambda: backend.runtime.capabilities.get(NORMALIZED))
-        assert len(capabilities.tool_names) == 15
+        assert len(capabilities.tool_names) == 16
 
 
 # -- telemetry -----------------------------------------------------------------------------
@@ -383,7 +383,7 @@ async def test_the_robot_reconnects_and_rediscovers(backend: Backend) -> None:
         assert back.connection.reconnect_count == 1
         assert back.connection.is_connected
         capabilities = await backend.wait_for(lambda: backend.runtime.capabilities.get(NORMALIZED), timeout=20)
-        assert len(capabilities.tool_names) == 15
+        assert len(capabilities.tool_names) == 16
 
 
 async def _disconnected(backend: Backend) -> Any:

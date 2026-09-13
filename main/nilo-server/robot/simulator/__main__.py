@@ -95,6 +95,11 @@ def build_parser() -> argparse.ArgumentParser:
     faults.add_argument("--camera-failure", action="store_true", help="fail robot.camera.capture")
     faults.add_argument("--drop-notifications", action="store_true", help="stop sending telemetry, keep the session up")
     faults.add_argument(
+        "--drop-motion-completion",
+        action="store_true",
+        help="keep reporting telemetry but never report that a motion finished",
+    )
+    faults.add_argument(
         "--disconnect-at", type=float, default=None, metavar="SEC",
         help="abort the TCP connection at this simulated time",
     )
@@ -128,6 +133,7 @@ def resolve_scenario(args: argparse.Namespace) -> Scenario:
     faults.motor_failure = faults.motor_failure or args.motor_failure
     faults.camera_failure = faults.camera_failure or args.camera_failure
     faults.drop_notifications = faults.drop_notifications or args.drop_notifications
+    faults.drop_motion_completion = faults.drop_motion_completion or args.drop_motion_completion
     if args.disconnect_at is not None:
         faults.disconnect_at_s = args.disconnect_at
     faults.reconnect = not args.no_reconnect

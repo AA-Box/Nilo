@@ -7,6 +7,10 @@ of attributes the robot seam reads off a ConnectionHandler.
 from __future__ import annotations
 
 import asyncio
+import itertools
+import json
+from collections.abc import Iterable
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -162,3 +166,154 @@ async def runtime():
         yield active
     finally:
         await active.aclose()
+
+
+# -- the action layer ---------------------------------------------------------------------
+#
+# The executor talks to exactly three things: an event bus, a tool channel and the world
+# model. FakeActionRuntime is all three, in sixty lines, so an executor test needs no
+# socket, no device and no registry — and can make the device behave in ways a real one
+# only manages on a bad day.
+
+from robot.actions.model import SPEC_TYPES  # noqa: E402
+from robot.devices.mcp import McpTimeoutError, sanitize_tool_name  # noqa: E402
+from robot.events.bus import EventBus  # noqa: E402
+from robot.events.types import RobotEvent  # noqa: E402
+from robot.state.models import (  # noqa: E402
+    ConnectionStatus,
+    RobotCapabilities,
+    RobotConnection,
+    RobotIdentity,
+    RobotSensorState,
+    RobotState,
+    RobotTelemetry,
+    RobotTool,
+    utcnow,
+)
+
+ROBOT_ID = "test-robot"
+
+#: Every tool the ten action specs dispatch to, as a device would publish them.
+ACTION_TOOL_NAMES: tuple[str, ...] = tuple(
+    sorted({spec.device_tool_name for spec in SPEC_TYPES.values()})
+)
+
+
+def robot_tools(names: Iterable[str] = ACTION_TOOL_NAMES) -> tuple[RobotTool, ...]:
+    """Discovered tools, named the way discovery names them (sanitized, raw kept)."""
+    return tuple(
+        RobotTool(name=sanitize_tool_name(name), raw_name=name, description=f"{name} tool")
+        for name in names
+    )
+
+
+def robot_state(
+    robot_id: str = ROBOT_ID,
+    *,
+    connected: bool = True,
+    tools: Iterable[str] | None = None,
+    sensors: RobotSensorState | None = None,
+    telemetry: RobotTelemetry | None = None,
+    last_seen: datetime | None = None,
+    battery: Any = None,
+) -> RobotState:
+    """A registered, connected robot with fresh sensors and a full tool table.
+
+    Every argument exists so a test can make exactly one thing wrong — a stale sensor
+    frame, a missing tool, a closed connection — and leave the rest healthy.
+    """
+    moment = last_seen or utcnow()
+    capabilities = RobotCapabilities(
+        mcp=True, tools=robot_tools(ACTION_TOOL_NAMES if tools is None else tools)
+    )
+    identity = RobotIdentity(
+        device_id=robot_id, robot_id=robot_id, capabilities=capabilities, last_seen_at=moment
+    )
+    connection = RobotConnection(
+        robot_id=robot_id,
+        device_id=robot_id,
+        session_id="session-1",
+        status=ConnectionStatus.CONNECTED if connected else ConnectionStatus.DISCONNECTED,
+        last_seen_at=moment,
+        updated_at=moment,
+    )
+    picture = telemetry or RobotTelemetry(
+        sensors=sensors if sensors is not None else RobotSensorState(readings={"front_mm": 1500.0}),
+        battery=battery,
+    )
+    return RobotState(
+        robot_id=robot_id, identity=identity, connection=connection, telemetry=picture
+    )
+
+
+class FakeActionRuntime:
+    """An :class:`~robot.actions.executor.ActionRuntime` with a scriptable device.
+
+    ``replies`` maps a sanitized tool name to what the call returns: a string (sent back
+    verbatim), a dict (JSON-encoded, as firmware would), an exception instance (raised),
+    or a callable taking the arguments. Anything unscripted gets a generic accepted
+    reply with a fresh device action id, which is what a healthy robot does.
+    """
+
+    def __init__(
+        self,
+        states: dict[str, RobotState] | None = None,
+        *,
+        events: EventBus | None = None,
+        latency_s: float = 0.0,
+    ) -> None:
+        self.events = events or EventBus()
+        self.states: dict[str, RobotState] = states or {ROBOT_ID: robot_state()}
+        self.replies: dict[str, Any] = {}
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+        self.latency_s = latency_s
+        self.published: list[RobotEvent] = []
+        self._device_ids = itertools.count(1)
+
+    # -- the ActionRuntime surface ---------------------------------------------------------
+
+    async def call_tool(
+        self,
+        robot_id: str,
+        name: str,
+        arguments: Any = None,
+        *,
+        timeout: float | None = None,
+    ) -> str:
+        self.calls.append((robot_id, name, dict(arguments or {})))
+        if self.latency_s:
+            await asyncio.sleep(self.latency_s)
+        scripted = self.replies.get(name, _MISSING)
+        if scripted is _MISSING:
+            return json.dumps({"accepted": True, "action_id": self.next_device_id()})
+        if callable(scripted) and not isinstance(scripted, BaseException):
+            scripted = scripted(dict(arguments or {}))
+        if isinstance(scripted, BaseException):
+            raise scripted
+        if isinstance(scripted, dict):
+            return json.dumps(scripted)
+        return str(scripted)
+
+    async def get_state(self, robot_id: str) -> RobotState | None:
+        return self.states.get(robot_id)
+
+    # -- helpers for tests -------------------------------------------------------------------
+
+    def next_device_id(self) -> str:
+        return f"dev-{next(self._device_ids)}"
+
+    def set_state(self, state: RobotState) -> None:
+        self.states[state.robot_id] = state
+
+    def called(self, name: str) -> tuple[dict[str, Any], ...]:
+        return tuple(arguments for _, tool, arguments in self.calls if tool == name)
+
+    def never_answers(self, name: str) -> None:
+        """Make a tool behave like a device that accepted the frame and went quiet."""
+        self.replies[name] = McpTimeoutError(f"{name} did not answer")
+
+    async def aclose(self) -> None:
+        await self.events.aclose()
+
+
+_MISSING = object()

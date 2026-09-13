@@ -46,6 +46,9 @@ class Faults(BaseModel):
     camera_failure: bool = False
     #: Telemetry notifications are not sent. The session stays up and looks healthy.
     drop_notifications: bool = False
+    #: Motion completions are not sent, while telemetry still is. The action the backend
+    #: dispatched never reports back, so its watchdog is what has to end it.
+    drop_motion_completion: bool = False
     #: Drop the WebSocket (without a close frame) at this simulated time.
     disconnect_at_s: float | None = None
     #: Whether a dropped connection is dialled again.
@@ -103,6 +106,8 @@ class ScenarioHost(Protocol):
     def command_move(self, distance_mm: int, speed_mmps: int) -> str: ...
 
     def command_turn(self, angle_deg: int, speed_dps: int) -> str: ...
+
+    def command_follow(self, target_id: str, duration_ms: int, stop_distance_mm: int) -> str: ...
 
     def command_stop(self) -> None: ...
 
@@ -223,6 +228,14 @@ async def _turn(host: ScenarioHost, args: dict[str, Any]) -> None:
     host.command_turn(int(args.get("angle_deg", 90)), int(args.get("speed_dps", 90)))
 
 
+async def _follow(host: ScenarioHost, args: dict[str, Any]) -> None:
+    host.command_follow(
+        str(args.get("target_id", "person-1")),
+        int(args.get("duration_ms", 5000)),
+        int(args.get("stop_distance_mm", 600)),
+    )
+
+
 async def _stop(host: ScenarioHost, args: dict[str, Any]) -> None:
     host.command_stop()
 
@@ -267,6 +280,7 @@ _ACTIONS: dict[str, Any] = {
     "set_battery": _set_battery,
     "move": _move,
     "turn": _turn,
+    "follow": _follow,
     "stop": _stop,
     "set_expression": _set_expression,
     "play_animation": _play_animation,

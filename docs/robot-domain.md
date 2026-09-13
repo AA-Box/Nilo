@@ -4,10 +4,11 @@ The robot subsystem as it exists in the tree: typed models for a connected robot
 registry that survives a reconnect, a state store, an event bus, and capability discovery
 over the device MCP tool channel.
 
-This is the **implemented** half of [robot-architecture.md](robot-architecture.md). There
-is still no behaviour engine, no action executor and no safety policy: nothing here moves
-a robot. It answers "which robots are connected, what can each one do, and what is each
-one doing right now".
+This is one **implemented** half of [robot-architecture.md](robot-architecture.md): it
+answers "which robots are connected, what can each one do, and what is each one doing right
+now". Nothing on this page moves a robot — that is the action layer, which sits on top of it
+and is documented in [robot-actions.md](robot-actions.md). There is still no behaviour
+engine, no personality and no LLM-facing bridge.
 
 ## What runs today
 

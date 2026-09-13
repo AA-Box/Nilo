@@ -475,11 +475,16 @@ set is `NILO_CONFIG`, `NILO_SERVER_HOST`, `NILO_SERVER_PORT`, `NILO_HTTP_PORT` a
 
 ---
 
-## 8. Planned: robot hardware over MCP
+## 8. Robot hardware over MCP
 
-**Status: Planned. None of this exists in the tree today.** The only robot code currently
-present is `robot/protocol/` (route definitions); there is no action layer, no behaviour
-engine, no world model and no safety policy — see [robot-architecture.md](robot-architecture.md)
+**Status: partly implemented.** The backend half exists — `robot/devices/` discovers a
+device's tools, `robot/telemetry.py` turns its `notifications/*` into world state, and
+`robot/actions/` plus `robot/safety/` decide what may be dispatched and send it with an
+explicit short timeout ([robot-actions.md](robot-actions.md)). The simulator publishes a
+full hardware tool table over this channel ([robot-simulator.md](robot-simulator.md)).
+
+What is still design: the LLM-facing `robot_*` tool schemas (Phase 4), the behaviour engine
+and the world model beyond per-robot state — see [robot-architecture.md](robot-architecture.md)
 and [robot-roadmap.md](robot-roadmap.md).
 
 The intended shape follows directly from what is implemented above, and the design constraints

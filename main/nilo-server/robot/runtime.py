@@ -20,7 +20,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from robot.devices.mcp import McpError, McpUnsupportedError
@@ -36,6 +36,9 @@ from robot.state.models import (
     RobotTelemetry,
 )
 from robot.state.store import InMemoryRobotStateStore, RobotStateStore
+
+if TYPE_CHECKING:  # pragma: no cover - imported lazily below to keep the graph acyclic
+    from robot.actions.executor import RobotActionExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +68,7 @@ class RobotRuntime:
         self._channels: dict[str, ToolChannel] = {}
         self._discovery: dict[str, asyncio.Task[None]] = {}
         self._discovery_timeout = discovery_timeout
+        self._actions: RobotActionExecutor | None = None
         self._closed = False
 
     @property
@@ -86,6 +90,29 @@ class RobotRuntime:
     @property
     def capabilities(self) -> RobotCapabilityRegistry:
         return self._capabilities
+
+    @property
+    def actions(self) -> RobotActionExecutor:
+        """The action executor for this runtime, created on first use.
+
+        Imported inside the property on purpose: ``robot/actions`` imports the runtime's
+        protocol, so a module-scope import here would be a cycle
+        (docs/robot-architecture.md Sect. 7). It also keeps ``import robot.runtime``
+        cheap for the processes that only want the registry.
+        """
+        from robot.actions.executor import RobotActionExecutor
+
+        if self._actions is None:
+            self._actions = RobotActionExecutor(self)
+        return self._actions
+
+    def robot(self, robot_id: str) -> Any:
+        """A semantic handle: ``await runtime.robot(id).move(distance_mm=300)``."""
+        return self.actions.robot(robot_id)
+
+    async def get_state(self, robot_id: str) -> RobotState | None:
+        """The world-model entry for one robot. What the safety policy is evaluated against."""
+        return await self._store.get(robot_id)
 
     def channel(self, robot_id: str) -> ToolChannel | None:
         return self._channels.get(robot_id)
@@ -214,8 +241,15 @@ class RobotRuntime:
         return result
 
     async def aclose(self) -> None:
-        """Cancel discovery, close every channel and shut the bus down. Idempotent."""
+        """Stop the executor, cancel discovery, close every channel, shut the bus down.
+
+        The executor goes first: it unsubscribes from the bus and cancels its in-flight
+        dispatches, so nothing is still trying to call a channel that is about to close.
+        """
         self._closed = True
+        actions, self._actions = self._actions, None
+        if actions is not None:
+            await actions.aclose()
         tasks = list(self._discovery.values())
         self._discovery.clear()
         for task in tasks:
