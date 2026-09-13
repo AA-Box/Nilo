@@ -17,17 +17,18 @@ label in front of it:
 | Agent | **Implemented** (as a chat agent, not yet as an embodied one) | `core/providers/llm/`, `core/providers/tools/`, `core/connection.py` |
 | Perception / Vision | **Experimental** | `core/api/vision_handler.py`, `core/providers/vllm/` — one-shot image explanation, no tracking, no coordinates |
 | Perception / Sensors | **Planned** | `robot/state/models.py` types the sensor state; nothing produces it yet |
-| World Model | **Partial** | `robot/state/` — per-robot state with an age on every entry and a store interface; no obstacle map, no tracked entities |
+| World Model | **Implemented** | `robot/state/` — per-robot state, plus `robot/state/world.py`: entities with confidence and a decay schedule, attention, interactions, environment; written from events by `robot/state/world_model.py`. See [robot-behavior.md](robot-behavior.md) |
 | Memory (robot-scoped) | **Planned** | conversation memory exists (`core/providers/memory/`); spatial, episodic and person memory do not |
-| Behavior Engine | **Planned** | nothing in the tree |
+| Behavior Engine | **Implemented** | `robot/behavior/` — deterministic utility scoring, sixteen behaviours, four autonomy modes, no LLM anywhere in it; see [robot-behavior.md](robot-behavior.md) |
 | Action Executor | **Implemented** | `robot/actions/` — ten semantic actions, the lifecycle, the queue and the resource ledger; see [robot-actions.md](robot-actions.md) |
 | Safety | **Implemented**, as a policy filter | `robot/safety/` — deterministic policy, configurable limits, emergency-stop latch, supervisory watchdog. Not a guarantee: [safety.md](safety.md) |
 
 Concretely: `main/nilo-server/robot/` holds the protocol registry, the robot domain layer
 (`robot/state/`, `robot/events/`, `robot/devices/`), the simulator (`robot/simulator/`), the
-action and safety layers (`robot/actions/`, `robot/safety/`) and the two modules that wire
-it all into a session (`robot/runtime.py`, `robot/session.py`). There is no behaviour
-engine, no personality and no LLM-facing bridge yet. Nothing here is running code unless it
+action and safety layers (`robot/actions/`, `robot/safety/`), the world model and the
+behaviour engine (`robot/state/world.py`, `robot/behavior/`) and the two modules that wire
+it all into a session (`robot/runtime.py`, `robot/session.py`). There is no personality
+model, no robot vision and no LLM-facing bridge yet. Nothing here is running code unless it
 is marked **Implemented**. Planned module paths below are written **without backticks** on
 purpose: `scripts/check_docs.py` fails the build when a backticked repository path does not
 exist, and these do not exist yet.
@@ -717,6 +718,7 @@ Stated so that nothing here is an undocumented assumption.
 
 [robot-domain.md](robot-domain.md) — the domain layer that is implemented ·
 [robot-actions.md](robot-actions.md) — the action and safety layers, as implemented ·
+[robot-behavior.md](robot-behavior.md) — the world model and the behaviour engine ·
 [safety.md](safety.md) — the safety split, and what firmware must implement itself ·
 [protocol.md](protocol.md) — the device wire protocol and the route registry ·
 [mcp.md](mcp.md) — the tool channel robot commands ride on ·

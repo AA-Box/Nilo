@@ -10,7 +10,7 @@ import asyncio
 import itertools
 import json
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -181,6 +181,7 @@ from robot.events.bus import EventBus  # noqa: E402
 from robot.events.types import RobotEvent  # noqa: E402
 from robot.state.models import (  # noqa: E402
     ConnectionStatus,
+    RobotBatteryState,
     RobotCapabilities,
     RobotConnection,
     RobotIdentity,
@@ -317,3 +318,114 @@ class FakeActionRuntime:
 
 
 _MISSING = object()
+
+
+# -- the behaviour engine ---------------------------------------------------------------------
+#
+# Three things every behaviour test needs and none of them is real: a clock a test moves by
+# hand, a robot handle that records instead of commanding, and a world snapshot builder.
+# Between them a test for "boredom rises over five minutes" runs in microseconds.
+
+from robot.behavior.base import AutonomyMode  # noqa: E402
+from robot.behavior.builtins import default_behaviors  # noqa: E402
+from robot.behavior.explain import NullRobot  # noqa: E402
+from robot.behavior.scheduler import BehaviorRegistry, BehaviorScheduler  # noqa: E402
+from robot.behavior.tuning import BehaviorTuning  # noqa: E402
+from robot.state.world import Interaction, WorldState  # noqa: E402
+
+#: The fixed instant every behaviour test builds its worlds at. Freshness inside a snapshot
+#: is measured against the snapshot's own ``updated_at``, so no test depends on wall time.
+WORLD_T0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+class FakeClock:
+    """Time that only moves when a test says so."""
+
+    def __init__(self, start: float = 0.0) -> None:
+        self.t = start
+
+    def __call__(self) -> float:
+        return self.t
+
+    def advance(self, seconds: float) -> float:
+        self.t += seconds
+        return self.t
+
+
+class RecordingRobot(NullRobot):
+    """A robot handle that records every semantic command and executes nothing."""
+
+    @property
+    def commands(self) -> tuple[str, ...]:
+        return tuple(name for name, _ in self.calls)
+
+    def arguments(self, name: str) -> tuple[dict[str, Any], ...]:
+        return tuple(args for called, args in self.calls if called == name)
+
+
+def behavior_world(
+    robot_id: str = ROBOT_ID,
+    *,
+    battery_percent: int = 80,
+    charging: bool = False,
+    touch: bool = False,
+    cliff: bool = False,
+    now: datetime | None = None,
+    entities: Iterable[Any] = (),
+    interaction_ended_s: float | None = None,
+    **fields: Any,
+) -> WorldState:
+    """A world snapshot with the telemetry a behaviour reads and any entities you name."""
+    moment = now or WORLD_T0
+    world = WorldState(
+        robot_id=robot_id,
+        telemetry=RobotTelemetry(
+            battery=RobotBatteryState(percent=battery_percent, charging=charging, updated_at=moment),
+            sensors=RobotSensorState(
+                touch_detected=touch,
+                cliff_detected=cliff,
+                readings={"front_mm": 1500.0},
+                updated_at=moment,
+            ),
+            updated_at=moment,
+        ),
+        updated_at=moment,
+        **fields,
+    )
+    for entity in entities:
+        world = world.observe(entity, now=moment)
+    if interaction_ended_s is not None:
+        ended = moment - timedelta(seconds=interaction_ended_s)
+        world = world.start_interaction(
+            Interaction(id="chat-1", started_at=ended - timedelta(seconds=30), ended_at=ended),
+            now=moment,
+        ).end_interaction(now=ended)
+        world = world.model_copy(update={"updated_at": moment})
+    return world
+
+
+def make_scheduler(
+    *behaviors: Any,
+    robot: RecordingRobot | None = None,
+    clock: FakeClock | None = None,
+    tuning: BehaviorTuning | None = None,
+    mode: AutonomyMode = AutonomyMode.NORMAL,
+    seed: int = 0,
+    events: Any = None,
+    robot_id: str = ROBOT_ID,
+) -> tuple[BehaviorScheduler, RecordingRobot, FakeClock]:
+    """A scheduler over the behaviours given (or all the built-ins), on a fake clock."""
+    handle = robot or RecordingRobot()
+    fake_clock = clock or FakeClock()
+    registry = BehaviorRegistry(behaviors if behaviors else default_behaviors())
+    scheduler = BehaviorScheduler(
+        robot_id,
+        handle,
+        registry=registry,
+        tuning=tuning or BehaviorTuning(),
+        mode=mode,
+        events=events,
+        seed=seed,
+        clock=fake_clock,
+    )
+    return scheduler, handle, fake_clock

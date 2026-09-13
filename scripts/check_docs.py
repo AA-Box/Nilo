@@ -41,7 +41,6 @@ PLANNED_PATHS = {
     "robot/agent",
     "robot/animation",
     "robot/api",
-    "robot/behavior",
     "robot/memory",
     "robot/personality",
     "robot/vision",

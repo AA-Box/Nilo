@@ -34,6 +34,7 @@ ROBOT_MODULES = (
     "robot.state",
     "robot.events",
     "robot.devices",
+    "robot.behavior",
     "robot.runtime",
     "robot.session",
 )
@@ -80,6 +81,7 @@ FORBIDDEN: dict[str, frozenset[str]] = {
     "state": frozenset({"actions", "behavior", "devices", "personality", "safety", "simulator"}),
     "safety": frozenset({"actions", "behavior", "personality", "devices", "simulator"}),
     "actions": frozenset({"behavior", "personality", "simulator"}),
+    "behavior": frozenset({"devices", "simulator"}),
     "devices": frozenset({"actions", "behavior", "personality", "safety", "simulator"}),
     "simulator": frozenset({"actions", "behavior", "devices", "events", "personality",
                             "safety", "state"}),

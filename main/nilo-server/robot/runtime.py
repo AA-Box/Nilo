@@ -36,9 +36,12 @@ from robot.state.models import (
     RobotTelemetry,
 )
 from robot.state.store import InMemoryRobotStateStore, RobotStateStore
+from robot.state.world_model import WorldModel
 
 if TYPE_CHECKING:  # pragma: no cover - imported lazily below to keep the graph acyclic
     from robot.actions.executor import RobotActionExecutor
+    from robot.behavior.base import AutonomyMode
+    from robot.behavior.engine import BehaviorEngine
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +72,9 @@ class RobotRuntime:
         self._discovery: dict[str, asyncio.Task[None]] = {}
         self._discovery_timeout = discovery_timeout
         self._actions: RobotActionExecutor | None = None
+        self._world = WorldModel()
+        self._behaviors: dict[str, BehaviorEngine] = {}
+        self._autonomy: AutonomyMode | None = None
         self._closed = False
 
     @property
@@ -106,9 +112,61 @@ class RobotRuntime:
             self._actions = RobotActionExecutor(self)
         return self._actions
 
+    @property
+    def world(self) -> WorldModel:
+        """The world model: what the robot believes is around it, folded from events."""
+        return self._world
+
+    @property
+    def autonomy(self) -> AutonomyMode:
+        """The autonomy mode new behaviour engines start in. ``NORMAL`` until set.
+
+        The import is local for the same reason as the one in :meth:`behavior`: importing
+        the behaviour package eagerly would make every process that logs pay for it
+        (``config/logger.py`` imports ``robot.__version__``).
+        """
+        from robot.behavior.base import AutonomyMode
+
+        if self._autonomy is None:
+            self._autonomy = AutonomyMode.NORMAL
+        return self._autonomy
+
+    async def set_autonomy(self, mode: AutonomyMode) -> None:
+        """Change the autonomy mode of every robot, now and for the ones that connect later."""
+        self._autonomy = mode
+        for engine in list(self._behaviors.values()):
+            await engine.set_mode(mode)
+
     def robot(self, robot_id: str) -> Any:
         """A semantic handle: ``await runtime.robot(id).move(distance_mm=300)``."""
         return self.actions.robot(robot_id)
+
+    def behavior(self, robot_id: str, *, seed: int = 0, autostart: bool = False) -> BehaviorEngine:
+        """The behaviour engine for one robot, created on first use.
+
+        Imported inside the method for the same reason as :attr:`actions`: the behaviour
+        package imports the action layer, which imports this module's protocol, so a
+        module-scope import here would be a cycle. Actions are attributed to
+        :attr:`~robot.state.actions.ActionSource.BEHAVIOR`, which is what makes an incident
+        log say the robot decided this by itself rather than that somebody asked for it.
+        """
+        from robot.behavior.engine import BehaviorEngine
+        from robot.state.actions import ActionSource
+
+        engine = self._behaviors.get(robot_id)
+        if engine is None:
+            engine = BehaviorEngine(
+                robot_id,
+                self.actions.robot(robot_id).as_source(ActionSource.BEHAVIOR),
+                self._world,
+                events=self._events,
+                mode=self.autonomy,
+                seed=seed,
+            )
+            self._behaviors[robot_id] = engine
+            if autostart:
+                engine.start()
+        return engine
 
     async def get_state(self, robot_id: str) -> RobotState | None:
         """The world-model entry for one robot. What the safety policy is evaluated against."""
@@ -131,6 +189,8 @@ class RobotRuntime:
         """
         if self._closed:
             raise RuntimeError("robot runtime is closed")
+        # Subscribing needs a running loop, which __init__ cannot assume it has.
+        self._world.attach(self._events)
         robot_id = device.robot_id
         state = await self._registry.register(device.identity(), device.connection())
         previous_channel = self._channels.get(robot_id)
@@ -171,6 +231,9 @@ class RobotRuntime:
         channel = self._channels.pop(robot_id, None)
         if channel is not None:
             await _close_quietly(channel, robot_id)
+        engine = self._behaviors.pop(robot_id, None)
+        if engine is not None:
+            await engine.aclose()
         return True
 
     async def refresh_capabilities(self, robot_id: str) -> RobotCapabilities | None:
@@ -247,6 +310,10 @@ class RobotRuntime:
         dispatches, so nothing is still trying to call a channel that is about to close.
         """
         self._closed = True
+        engines, self._behaviors = list(self._behaviors.values()), {}
+        for engine in engines:
+            await engine.aclose()
+        await self._world.aclose()
         actions, self._actions = self._actions, None
         if actions is not None:
             await actions.aclose()

@@ -148,6 +148,64 @@ class ActionFinished(RobotEvent):
         return self.action.succeeded
 
 
+class BehaviorEvaluated(RobotEvent):
+    """One scoring pass of the behaviour engine, in full.
+
+    The debug event: every candidate with its score and the reasons it gave, including
+    the ones that were filtered out and why. It is what
+    ``python -m robot.behavior explain`` prints and what a management API serves when
+    somebody asks why the robot is doing what it is doing.
+
+    Payloads are primitives rather than behaviour objects on purpose — ``robot/events``
+    sits below ``robot/behavior`` in the layering and may not import it.
+    """
+
+    tick: int = 0
+    mode: str = "normal"
+    #: ``name -> score``, every candidate that was scored, highest first.
+    scores: tuple[tuple[str, float], ...] = ()
+    #: ``name -> reason`` for candidates that never reached scoring.
+    rejected: tuple[tuple[str, str], ...] = ()
+    #: ``name -> (reason, ...)`` for the reasons each candidate recorded.
+    reasons: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    selected: str | None = None
+
+
+class BehaviorSelected(RobotEvent):
+    """The engine chose a behaviour. Not yet that it started — safety may still refuse."""
+
+    behavior: str
+    score: float = 0.0
+    category: str = ""
+    priority: int = 0
+    #: The runners-up, highest first. Two or three is enough to explain a decision.
+    alternatives: tuple[tuple[str, float], ...] = ()
+    reasons: tuple[str, ...] = ()
+    preempted: str | None = None
+
+
+class BehaviorStarted(RobotEvent):
+    behavior: str
+    score: float = 0.0
+    resources: tuple[str, ...] = ()
+
+
+class BehaviorCompleted(RobotEvent):
+    behavior: str
+    outcome: str = "completed"
+    detail: str = ""
+    duration_s: float = 0.0
+
+
+class BehaviorInterrupted(RobotEvent):
+    """A running behaviour was stopped before it finished. ``by`` names what took over."""
+
+    behavior: str
+    reason: str = "preempted"
+    by: str | None = None
+    duration_s: float = 0.0
+
+
 class EmergencyStopChanged(RobotEvent):
     """The emergency-stop latch was engaged or cleared for one robot."""
 
@@ -158,6 +216,11 @@ class EmergencyStopChanged(RobotEvent):
 
 __all__ = [
     "ActionFinished",
+    "BehaviorCompleted",
+    "BehaviorEvaluated",
+    "BehaviorInterrupted",
+    "BehaviorSelected",
+    "BehaviorStarted",
     "ActionStarted",
     "ActionSubmitted",
     "BatteryUpdated",

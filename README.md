@@ -43,6 +43,11 @@ than a smart speaker. The direction is described in [docs/robot-architecture.md]
 * Robot action layer (`main/nilo-server/robot/actions/`): ten semantic actions with an explicit lifecycle, a
   priority queue, resource claims over `DRIVE / HEAD / LIFT / DISPLAY / AUDIO / CAMERA` so two actions cannot
   command the same hardware, and `await robot.move(...)` on top ([docs/robot-actions.md](docs/robot-actions.md))
+* Robot world model and behaviour engine (`main/nilo-server/robot/state/world.py`,
+  `main/nilo-server/robot/behavior/`): tracked entities with a decay schedule, and deterministic
+  utility-scored autonomy — sixteen behaviours, four autonomy modes, seeded randomness, and
+  `python -m robot.behavior explain` to ask why it chose what it chose. **No LLM is involved in
+  deciding what the robot does** ([docs/robot-behavior.md](docs/robot-behavior.md))
 * Robot safety policy (`main/nilo-server/robot/safety/`): deterministic admission against configurable limits and
   live sensor state, typed rejections (never silent clamping), a sticky emergency-stop latch, and a supervisory
   watchdog on its own thread. A **policy filter, not a guarantee** — firmware owns every guarantee

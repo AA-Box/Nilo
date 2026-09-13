@@ -6,8 +6,9 @@ Implementation phases and acceptance criteria for the architecture in
 Nilo is a voice/vision session backend that has grown a robot subsystem. Phases 0 to 3 have
 landed: the domain layer, the registry and session seam, the simulator, and the action and
 safety layers ([robot-domain.md](robot-domain.md), [robot-simulator.md](robot-simulator.md),
-[robot-actions.md](robot-actions.md)). The behaviour engine, personality, robot memory, the
-LLM seam and the management API are **not implemented**. This page is the plan, and the
+[robot-actions.md](robot-actions.md)), and so have the world model and the behaviour engine
+([robot-behavior.md](robot-behavior.md)). Personality, animation, robot vision, robot memory,
+the LLM seam and the management API are **not implemented**. This page is the plan, and the
 honest boundary between what runs and what is design: each phase below says which half it is
 in, and a **Delivered** note means the code is in the tree.
 
@@ -359,7 +360,19 @@ Expose actions to the LLM. This is where the critical design rule becomes real.
 
 ## Phase 5 — Vision and world model
 
-**Build:** **robot/vision/**, extend **robot/state/**.
+**Build:** **robot/vision/**, extend `robot/state/`.
+
+**Delivered, world-model half** (see [robot-behavior.md](robot-behavior.md)):
+`robot/state/world.py` — entities (`robot`, `person`, `face`, `object`, `location`,
+`obstacle`) with `first_seen`, `last_seen`, `confidence` and either a metric `position` or
+a normalized 0.0–1.0 `image_point`; attention, interactions and an environment block; a
+documented per-kind TTL and confidence half-life, applied by `WorldState.decay`.
+`robot/state/world_model.py` is the single writer: it folds connection and telemetry events
+off the bus into immutable snapshots, and `runtime.world` is the one instance.
+
+**Still open:** vision itself — the providers, the detectors, the tracker and the
+fixtures. Nothing yet produces the `person` and `object` entities the world model can now
+hold; they arrive from the simulator and from tests.
 
 **Key constraints** (robot-architecture §2.4, R11):
 
@@ -391,7 +404,23 @@ Expose actions to the LLM. This is where the critical design rule becomes real.
 
 ## Phase 6 — Behaviour engine and personality
 
-**Build:** **robot/behavior/**, **robot/personality/**, **robot/animation/**.
+**Build:** `robot/behavior/`, **robot/personality/**, **robot/animation/**.
+
+**Delivered, behaviour half** (see [robot-behavior.md](robot-behavior.md)):
+`robot/behavior/` — `tuning.py` (every number the engine compares against, loadable from
+YAML, with a test that parses the behaviours to prove none of them hides a constant),
+`base.py` (the `Behavior` contract, the context, the four autonomy modes), `scheduler.py`
+(filtering, seeded scoring, banded arbitration, preemption, minimum and maximum runtimes,
+and the decision record), `builtins.py` (the sixteen behaviours), `engine.py` (the
+assembly) and `explain.py` plus `__main__.py` (`python -m robot.behavior explain`, which
+scores and can never command). Five structured debug events — `BehaviorEvaluated`,
+`BehaviorSelected`, `BehaviorStarted`, `BehaviorCompleted`, `BehaviorInterrupted` — carry
+the whole decision, losers included. `runtime.behavior(robot_id)` wires an engine onto the
+action layer with `ActionSource.BEHAVIOR`.
+
+**Still open:** personality and the emotional state that feeds `BehaviorContext.drives`
+(today `NeutralDrives`, a midpoint constant), and the data-driven animation engine the
+behaviours' `play_animation` calls will route through.
 
 **Key constraints** (robot-architecture §2.6, §7):
 
@@ -407,15 +436,19 @@ Expose actions to the LLM. This is where the critical design rule becomes real.
 
 ### Acceptance criteria
 
-* With the LLM provider hard-failing every call, the robot still selects and executes
-  behaviours for a full simulated session. This is the headline test of the phase.
-* Given a fixed world state and a fixed seed, the engine selects the same behaviour 1000
-  times out of 1000.
+* **Done.** Nothing under `robot/behavior/` imports an LLM provider, and nothing it calls
+  does: `tests/robot/test_behaviors.py` runs the whole set against world snapshots with no
+  model, no network and no device. The full-session form of this is Phase 8's.
+* **Done.** Given a fixed world state and a fixed seed, the engine selects the same
+  behaviour 1000 times out of 1000 — asserted literally, a thousand evaluations in
+  `tests/robot/test_behavior_scheduler.py`, which also proves registration order and two
+  different seeds change nothing and something respectively.
 * A new animation is added in a PR that touches **only** a YAML file, and it plays.
 * A test sweeps every personality trait across its full range with a cliff asserted, and
   the action is `REJECTED` in every case.
-* Four autonomy modes (`OFF / PASSIVE / NORMAL / FULL`) are implemented, and a test asserts
-  what each may and may not initiate.
+* **Done.** Four autonomy modes (`OFF / PASSIVE / NORMAL / FULL`) are implemented, and
+  `tests/robot/test_autonomy.py` asserts the whole table — every built-in behaviour against
+  every mode — plus that lowering the mode cancels what it would not have started.
 
 ---
 
