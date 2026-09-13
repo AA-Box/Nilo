@@ -42,6 +42,10 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
           cache-dependency-path: 'main/nilo-server/requirements*.txt'
+      - name: Install system dependencies
+        # opuslib_next resolves libopus through the system loader; the bundled libs/ are only
+        # for macOS and Windows. Matches Dockerfile-server-base.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libopus0 ffmpeg
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
