@@ -85,7 +85,13 @@ LEGACY = re.compile(r"xiaozhi-server|XIAOZHI_|xiaozhi_|小智")
 
 
 def docs() -> list[Path]:
-    pages = [ROOT / "README.md", SERVER / "CLAUDE.md", SERVER / "plugins/README.md"]
+    pages = [
+        ROOT / "README.md",
+        ROOT / "CONTRIBUTING.md",
+        ROOT / "SECURITY.md",
+        SERVER / "CLAUDE.md",
+        SERVER / "plugins/README.md",
+    ]
     pages += sorted((ROOT / "docs").glob("*.md"))
     return [p for p in pages if p.exists()]
 
