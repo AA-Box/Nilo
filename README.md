@@ -48,6 +48,11 @@ than a smart speaker. The direction is described in [docs/robot-architecture.md]
   utility-scored autonomy — sixteen behaviours, four autonomy modes, seeded randomness, and
   `python -m robot.behavior explain` to ask why it chose what it chose. **No LLM is involved in
   deciding what the robot does** ([docs/robot-behavior.md](docs/robot-behavior.md))
+* Robot personality and expressive animation (`main/nilo-server/robot/personality/`,
+  `main/nilo-server/robot/animation/`): six stable traits and seven internal control variables that
+  decay towards trait-derived baselines, plus animations defined as YAML data — adding one is adding
+  a file ([docs/robot-personality.md](docs/robot-personality.md),
+  [docs/robot-animation.md](docs/robot-animation.md))
 * Robot safety policy (`main/nilo-server/robot/safety/`): deterministic admission against configurable limits and
   live sensor state, typed rejections (never silent clamping), a sticky emergency-stop latch, and a supervisory
   watchdog on its own thread. A **policy filter, not a guarantee** — firmware owns every guarantee

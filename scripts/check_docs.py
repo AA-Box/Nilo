@@ -39,10 +39,8 @@ ENV_VARS = {"NILO_CONFIG", "NILO_SERVER_HOST", "NILO_SERVER_PORT", "NILO_HTTP_PO
 PLANNED_PATHS = {
     "robot/.ruff.toml",
     "robot/agent",
-    "robot/animation",
     "robot/api",
     "robot/memory",
-    "robot/personality",
     "robot/vision",
     "robot/tests/fixtures",
 }
@@ -70,6 +68,8 @@ LEGACY_ALLOWED = {
 # (which is what CI checks out), but the documentation is right to name them.
 RUNTIME_PATHS = {
     "main/nilo-server/data",
+    "main/nilo-server/data/animations",
+    "main/nilo-server/data/robot_personality",
     "main/nilo-server/tmp",
     "data",
     "tmp",

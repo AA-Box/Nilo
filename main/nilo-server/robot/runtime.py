@@ -40,8 +40,10 @@ from robot.state.world_model import WorldModel
 
 if TYPE_CHECKING:  # pragma: no cover - imported lazily below to keep the graph acyclic
     from robot.actions.executor import RobotActionExecutor
+    from robot.animation.engine import AnimationEngine
     from robot.behavior.base import AutonomyMode
     from robot.behavior.engine import BehaviorEngine
+    from robot.personality.model import PersonalityModel
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,7 @@ class RobotRuntime:
         store: RobotStateStore | None = None,
         capabilities: RobotCapabilityRegistry | None = None,
         discovery_timeout: float = DEFAULT_DISCOVERY_TIMEOUT,
+        personality_store: Any = None,
     ) -> None:
         self._events = events or EventBus()
         self._store = store or InMemoryRobotStateStore()
@@ -74,6 +77,12 @@ class RobotRuntime:
         self._actions: RobotActionExecutor | None = None
         self._world = WorldModel()
         self._behaviors: dict[str, BehaviorEngine] = {}
+        self._personalities: dict[str, PersonalityModel] = {}
+        # Opt-in: a runtime with no store keeps personalities in memory. Persistence is a
+        # deployment decision, and a test (or a CLI) must not write into `data/` just by
+        # constructing a runtime.
+        self._personality_store = personality_store
+        self._animations: dict[str, AnimationEngine] = {}
         self._autonomy: AutonomyMode | None = None
         self._closed = False
 
@@ -141,6 +150,48 @@ class RobotRuntime:
         """A semantic handle: ``await runtime.robot(id).move(distance_mm=300)``."""
         return self.actions.robot(robot_id)
 
+    def personality(self, robot_id: str) -> PersonalityModel:
+        """The personality and internal control variables for one robot, created on first use.
+
+        Attached to the bus immediately: the control variables are moved by what happens,
+        and a personality that is not listening is a personality that never changes.
+        """
+        from robot.personality.model import PersonalityModel
+        from robot.personality.traits import load_traits
+
+        model = self._personalities.get(robot_id)
+        if model is None:
+            model = PersonalityModel(robot_id, traits=load_traits(), store=self._personality_store)
+            model.attach(self._events)
+            self._personalities[robot_id] = model
+        return model
+
+    def animations(self, robot_id: str) -> AnimationEngine:
+        """The animation engine for one robot, created on first use.
+
+        Commands go through the same semantic handle as everything else (attributed to
+        :attr:`~robot.state.actions.ActionSource.BEHAVIOR`), so an animation step is
+        filtered by the safety policy exactly like a behaviour's own command. The energy
+        gate reads the robot's personality, which is why this is built after it.
+        """
+        from robot.animation.engine import AnimationEngine, HandlePlayer
+        from robot.animation.library import load_library
+        from robot.state.actions import ActionSource
+
+        engine = self._animations.get(robot_id)
+        if engine is None:
+            personality = self.personality(robot_id)
+            engine = AnimationEngine(
+                robot_id,
+                HandlePlayer(self.actions.robot(robot_id).as_source(ActionSource.BEHAVIOR)),
+                load_library(),
+                events=self._events,
+                energy=lambda: personality.energy,
+                low_energy_threshold=personality.tuning.low_energy_threshold,
+            )
+            self._animations[robot_id] = engine
+        return engine
+
     def behavior(self, robot_id: str, *, seed: int = 0, autostart: bool = False) -> BehaviorEngine:
         """The behaviour engine for one robot, created on first use.
 
@@ -155,6 +206,7 @@ class RobotRuntime:
 
         engine = self._behaviors.get(robot_id)
         if engine is None:
+            personality = self.personality(robot_id)
             engine = BehaviorEngine(
                 robot_id,
                 self.actions.robot(robot_id).as_source(ActionSource.BEHAVIOR),
@@ -162,6 +214,8 @@ class RobotRuntime:
                 events=self._events,
                 mode=self.autonomy,
                 seed=seed,
+                drives=personality,
+                animations=self.animations(robot_id),
             )
             self._behaviors[robot_id] = engine
             if autostart:
@@ -234,6 +288,14 @@ class RobotRuntime:
         engine = self._behaviors.pop(robot_id, None)
         if engine is not None:
             await engine.aclose()
+        animation = self._animations.pop(robot_id, None)
+        if animation is not None:
+            await animation.aclose()
+        personality = self._personalities.pop(robot_id, None)
+        if personality is not None:
+            # Writes the final snapshot: a robot that reconnects should not have lost its
+            # personality because the session dropped.
+            await personality.aclose()
         return True
 
     async def refresh_capabilities(self, robot_id: str) -> RobotCapabilities | None:
@@ -313,6 +375,12 @@ class RobotRuntime:
         engines, self._behaviors = list(self._behaviors.values()), {}
         for engine in engines:
             await engine.aclose()
+        animations, self._animations = list(self._animations.values()), {}
+        for animation in animations:
+            await animation.aclose()
+        personalities, self._personalities = list(self._personalities.values()), {}
+        for personality in personalities:
+            await personality.aclose()
         await self._world.aclose()
         actions, self._actions = self._actions, None
         if actions is not None:

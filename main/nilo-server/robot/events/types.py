@@ -206,6 +206,31 @@ class BehaviorInterrupted(RobotEvent):
     duration_s: float = 0.0
 
 
+class AnimationStarted(RobotEvent):
+    """An animation began playing, and what it took ownership of while it does."""
+
+    animation: str
+    priority: int = 0
+    loop: bool = False
+    resources: tuple[str, ...] = ()
+
+
+class AnimationFinished(RobotEvent):
+    animation: str
+    outcome: str = "completed"
+    detail: str = ""
+    passes: int = 1
+    duration_s: float = 0.0
+
+
+class AnimationCancelled(RobotEvent):
+    """An animation stopped early, or never started. ``reason`` says which and why —
+    preempted, restarted, closed, or refused because something else held the head."""
+
+    animation: str
+    reason: str = "cancelled"
+
+
 class EmergencyStopChanged(RobotEvent):
     """The emergency-stop latch was engaged or cleared for one robot."""
 
@@ -216,6 +241,9 @@ class EmergencyStopChanged(RobotEvent):
 
 __all__ = [
     "ActionFinished",
+    "AnimationCancelled",
+    "AnimationFinished",
+    "AnimationStarted",
     "BehaviorCompleted",
     "BehaviorEvaluated",
     "BehaviorInterrupted",

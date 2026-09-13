@@ -7,8 +7,9 @@ Nilo is a voice/vision session backend that has grown a robot subsystem. Phases 
 landed: the domain layer, the registry and session seam, the simulator, and the action and
 safety layers ([robot-domain.md](robot-domain.md), [robot-simulator.md](robot-simulator.md),
 [robot-actions.md](robot-actions.md)), and so have the world model and the behaviour engine
-([robot-behavior.md](robot-behavior.md)). Personality, animation, robot vision, robot memory,
-the LLM seam and the management API are **not implemented**. This page is the plan, and the
+([robot-behavior.md](robot-behavior.md)), and personality, emotion and expressive animation
+([robot-personality.md](robot-personality.md), [robot-animation.md](robot-animation.md)).
+Robot vision, robot memory, the LLM seam and the management API are **not implemented**. This page is the plan, and the
 honest boundary between what runs and what is design: each phase below says which half it is
 in, and a **Delivered** note means the code is in the tree.
 
@@ -404,7 +405,7 @@ hold; they arrive from the simulator and from tests.
 
 ## Phase 6 — Behaviour engine and personality
 
-**Build:** `robot/behavior/`, **robot/personality/**, **robot/animation/**.
+**Build:** `robot/behavior/`, `robot/personality/`, `robot/animation/`.
 
 **Delivered, behaviour half** (see [robot-behavior.md](robot-behavior.md)):
 `robot/behavior/` — `tuning.py` (every number the engine compares against, loadable from
@@ -418,9 +419,20 @@ scores and can never command). Five structured debug events — `BehaviorEvaluat
 the whole decision, losers included. `runtime.behavior(robot_id)` wires an engine onto the
 action layer with `ActionSource.BEHAVIOR`.
 
-**Still open:** personality and the emotional state that feeds `BehaviorContext.drives`
-(today `NeutralDrives`, a midpoint constant), and the data-driven animation engine the
-behaviours' `play_animation` calls will route through.
+**Delivered, personality and animation halves** (see
+[robot-personality.md](robot-personality.md) and [robot-animation.md](robot-animation.md)):
+`robot/personality/` — six stable traits with presets and a YAML file, seven internal
+control variables that decay exponentially towards trait-derived baselines and are nudged
+by named stimuli, the event wiring that keeps them current, and a per-robot JSON store
+that persists the traits on change and the variables only coarsely and occasionally.
+`robot/animation/` — animations as YAML data (five channels mapped onto the resource
+ledger, offsets rather than cumulative delays), a library loader where a deployment
+directory may replace a shipped animation by name, thirteen starter animations, and an
+engine with play, cancel, priority, looping, transitions, resource ownership and the
+low-energy gate. Both are wired in by `runtime.behavior(robot_id)`.
+
+**Still open:** nothing in this phase. The animation ``audio`` channel is declared but
+skipped until speech becomes an ``AUDIO`` resource claim.
 
 **Key constraints** (robot-architecture §2.6, §7):
 
@@ -443,9 +455,12 @@ behaviours' `play_animation` calls will route through.
   behaviour 1000 times out of 1000 — asserted literally, a thousand evaluations in
   `tests/robot/test_behavior_scheduler.py`, which also proves registration order and two
   different seeds change nothing and something respectively.
-* A new animation is added in a PR that touches **only** a YAML file, and it plays.
-* A test sweeps every personality trait across its full range with a cliff asserted, and
-  the action is `REJECTED` in every case.
+* **Done.** A new animation is added in a PR that touches **only** a YAML file, and it
+  plays — asserted by a test that writes a YAML file to a temporary directory, loads it and
+  plays it, and by a second that proves the shipped set comes from the files alone.
+* **Done.** A test sweeps every personality trait across its full range with a cliff
+  asserted, and the action is `REJECTED` in every case — thirty parameterized cases in
+  `tests/robot/test_personality.py`, each one also asserting nothing reached the device.
 * **Done.** Four autonomy modes (`OFF / PASSIVE / NORMAL / FULL`) are implemented, and
   `tests/robot/test_autonomy.py` asserts the whole table — every built-in behaviour against
   every mode — plus that lowering the mode cancels what it would not have started.

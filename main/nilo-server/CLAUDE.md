@@ -25,7 +25,9 @@ robot/            Nilo-owned code: protocol/ (routes), state/ (models + store + 
                   MCP capability discovery), safety/ (limits, deterministic policy, e-stop,
                   watchdog), actions/ (the ten semantic actions, queue, registry, executor),
                   behavior/ (the utility-scored autonomy engine: tuning, scheduler, the
-                  sixteen built-in behaviours, the explain CLI), telemetry.py (device
+                  sixteen built-in behaviours, the explain CLI), personality/ (traits, the
+                  internal control variables, the per-robot store), animation/ (YAML
+                  animations and the engine that plays them), telemetry.py (device
                   notifications -> world state), simulator/ (a fake robot on a real socket),
                   runtime.py, session.py
 tests/            pytest; tests/conftest.py points NILO_CONFIG at tests/fixtures/test_config.yaml.
@@ -46,6 +48,10 @@ Rules of thumb:
 * The behaviour engine never consults an LLM, never reads the wall clock, and never writes
   a number into a scoring function — tuning lives in `robot/behavior/tuning.py` and a test
   parses the source to prove it (`docs/robot-behavior.md`).
+* Animations are YAML data under `robot/animation/library/`; adding one must never require a
+  Python change (`docs/robot-animation.md`). Personality biases which action is proposed and
+  can never reach safety — say "internal control variables", never "emotions"
+  (`docs/robot-personality.md`).
 * Backend safety is a policy filter, never a guarantee. Do not write a comment, log line or
   doc sentence implying the backend can stop a robot.
 * Device routes live only in `robot/protocol/`; never spell a path into `core/`.
