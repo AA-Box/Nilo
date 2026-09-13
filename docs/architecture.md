@@ -452,21 +452,34 @@ guard, `config/settings.py:check_config_file` refuses a user config that sets bo
 
 ---
 
-## 10. Nilo robot layers (planned)
+## 10. Nilo robot layers
 
-Only one piece of the robot domain exists in code today: **`robot/protocol/`**, the device-facing
-protocol registry described in §1 (`base.py` with `ProtocolSpec`/`ProtocolRegistry` and `nilo.py`,
-covered by `tests/robot/test_protocol.py`). `robot/__init__.py` carries
-`__version__`, which the logger stamps on every line.
+`robot/` is Nilo-owned code that attaches to the inherited server through a handful of explicit
+seams. What exists today:
 
-Everything else in the robot domain — the semantic action vocabulary and action executor, the
-behaviour engine, personality and emotion model, world model, robot memory, the simulator and the
-safety policy — is **Planned**. There is no module, no config key and no tool for any of it, and the
-LLM is deliberately never given a tool that sets motor, servo or PWM values.
+| Piece | Module | Page |
+|---|---|---|
+| Device protocol registry (§1) | `robot/protocol/` | [protocol.md](protocol.md) |
+| Domain models, world state, the store | `robot/state/` | [robot-domain.md](robot-domain.md) |
+| Typed events and the bounded async bus | `robot/events/` | [robot-domain.md](robot-domain.md) |
+| Robot registry and MCP capability discovery | `robot/devices/` | [robot-domain.md](robot-domain.md) |
+| Telemetry ingestion (`notifications/*` → world state) | `robot/telemetry.py` | [robot-simulator.md](robot-simulator.md) |
+| Control plane and the session seam | `robot/runtime.py`, `robot/session.py` | [robot-domain.md](robot-domain.md) |
+| A simulated robot on a real socket | `robot/simulator/` | [robot-simulator.md](robot-simulator.md) |
+| Ten semantic actions, lifecycle, queue, executor | `robot/actions/` | [robot-actions.md](robot-actions.md) |
+| Limits, deterministic policy, e-stop, watchdog | `robot/safety/` | [safety.md](safety.md) |
 
-The intended layering, the seams `robot/` is allowed to use into `core/`, and the safety rule are in
+`robot/__init__.py` carries `__version__`, which the logger stamps on every line.
+
+Still **planned**: the behaviour engine, personality and emotion model, robot memory, the
+world model beyond per-robot state, the LLM-facing bridge and the management API. The LLM is
+deliberately never given a tool that sets motor, servo or PWM values, and the backend safety
+layer is a policy filter rather than a guarantee — firmware owns every guarantee
+([safety.md](safety.md)).
+
+The layering, the seams `robot/` is allowed to use into `core/`, and the safety rule are in
 [robot-architecture.md](robot-architecture.md); the sequencing is in
-[robot-roadmap.md](robot-roadmap.md) and the safety model in [safety.md](safety.md).
+[robot-roadmap.md](robot-roadmap.md).
 
 ---
 

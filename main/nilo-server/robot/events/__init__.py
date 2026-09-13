@@ -2,8 +2,12 @@
 
 from robot.events.bus import DEFAULT_QUEUE_SIZE, EventBus, EventHandler, Subscription
 from robot.events.types import (
+    ActionFinished,
+    ActionStarted,
+    ActionSubmitted,
     BatteryUpdated,
     CapabilitiesRefreshed,
+    EmergencyStopChanged,
     MotionCompleted,
     MotionFailed,
     PoseUpdated,
@@ -20,8 +24,12 @@ from robot.events.types import (
 
 __all__ = [
     "DEFAULT_QUEUE_SIZE",
+    "ActionFinished",
+    "ActionStarted",
+    "ActionSubmitted",
     "BatteryUpdated",
     "CapabilitiesRefreshed",
+    "EmergencyStopChanged",
     "EventBus",
     "EventHandler",
     "MotionCompleted",

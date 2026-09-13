@@ -38,14 +38,12 @@ ENV_VARS = {"NILO_CONFIG", "NILO_SERVER_HOST", "NILO_SERVER_PORT", "NILO_HTTP_PO
 # once one does, delete it here so the normal "this path exists" rule takes over.
 PLANNED_PATHS = {
     "robot/.ruff.toml",
-    "robot/actions",
     "robot/agent",
     "robot/animation",
     "robot/api",
     "robot/behavior",
     "robot/memory",
     "robot/personality",
-    "robot/safety",
     "robot/vision",
     "robot/tests/fixtures",
 }

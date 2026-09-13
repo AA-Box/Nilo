@@ -6,6 +6,8 @@ source of truth; read them before touching anything:
 * [`docs/architecture.md`](../../docs/architecture.md) — how the server works today
 * [`docs/robot-architecture.md`](../../docs/robot-architecture.md) — where robot code goes and the safety rule
 * [`docs/robot-domain.md`](../../docs/robot-domain.md) — the robot domain layer that is implemented
+* [`docs/robot-actions.md`](../../docs/robot-actions.md) — the action and safety layers, and how to use them
+* [`docs/safety.md`](../../docs/safety.md) — the safety split, and what firmware must implement itself
 * [`docs/robot-simulator.md`](../../docs/robot-simulator.md) — the simulator: run it, extend it, test against it
 * [`docs/development.md`](../../docs/development.md) — setup, lint, tests, layout
 * [`docs/upstream.md`](../../docs/upstream.md) — which code is inherited and how it is synced
@@ -18,10 +20,12 @@ app.py            entry point
 config/           YAML layering, NILO_* env overrides, placeholders, logging   (inherited, edited)
 core/             session server, handlers, providers, tool system            (inherited — minimise edits)
 plugins*/         interceptor plugins and @register_function tools             (inherited)
-robot/            Nilo-owned code: protocol/ (routes), state/ (models + store), events/ (bus),
-                  devices/ (robot registry, MCP capability discovery), telemetry.py (device
-                  notifications -> world state), simulator/ (a fake robot on a real socket),
-                  runtime.py, session.py
+robot/            Nilo-owned code: protocol/ (routes), state/ (models + store + the action
+                  vocabulary), events/ (bus), devices/ (robot registry, MCP capability
+                  discovery), safety/ (limits, deterministic policy, e-stop, watchdog),
+                  actions/ (the ten semantic actions, queue, registry, executor),
+                  telemetry.py (device notifications -> world state), simulator/ (a fake
+                  robot on a real socket), runtime.py, session.py
 tests/            pytest; tests/conftest.py points NILO_CONFIG at tests/fixtures/test_config.yaml.
                   tests/robot/ never opens a socket; tests/integration/ starts a real server
 ```
@@ -32,6 +36,13 @@ Rules of thumb:
   hook. Every line changed in `core/` is a line that conflicts on the next upstream port.
 * The LLM never gets a tool that sets motor/servo/PWM values. Semantic actions only
   (`docs/robot-architecture.md`, `docs/safety.md`).
+* Nothing talks to a device except `robot/actions/executor.py`. New capabilities are new
+  action specs, not new call sites.
+* `robot/safety/` may import `robot/state/` and nothing else from the subsystem, and it
+  rejects rather than clamps. `tests/robot/test_layering.py` enforces the first;
+  `tests/robot/test_safety.py` the second.
+* Backend safety is a policy filter, never a guarantee. Do not write a comment, log line or
+  doc sentence implying the backend can stop a robot.
 * Device routes live only in `robot/protocol/`; never spell a path into `core/`.
 * English only in comments, log lines and docs.
 

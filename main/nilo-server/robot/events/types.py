@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from robot.state.actions import ActionRecord
 from robot.state.models import (
     DisconnectReason,
     RobotBatteryState,
@@ -119,9 +120,49 @@ class ToolCallFailed(RobotEvent):
     duration_ms: float = 0.0
 
 
+class ActionSubmitted(RobotEvent):
+    """An action was created and handed to the executor. Published even if it is rejected
+    in the same breath, so the audit trail shows what was *asked for*, not only what ran."""
+
+    action: ActionRecord
+
+
+class ActionStarted(RobotEvent):
+    """An action passed safety, took its resource claims, and is being dispatched."""
+
+    action: ActionRecord
+
+
+class ActionFinished(RobotEvent):
+    """An action reached a terminal state — any of them.
+
+    One event for every ending, because a subscriber that cares about "it is over" should
+    not have to subscribe to five types to learn it. Which ending it was is
+    ``event.action.status``, and why is ``event.action.error``.
+    """
+
+    action: ActionRecord
+
+    @property
+    def succeeded(self) -> bool:
+        return self.action.succeeded
+
+
+class EmergencyStopChanged(RobotEvent):
+    """The emergency-stop latch was engaged or cleared for one robot."""
+
+    engaged: bool
+    reason: str = ""
+    engaged_by: str = "system"
+
+
 __all__ = [
+    "ActionFinished",
+    "ActionStarted",
+    "ActionSubmitted",
     "BatteryUpdated",
     "CapabilitiesRefreshed",
+    "EmergencyStopChanged",
     "MotionCompleted",
     "MotionFailed",
     "PoseUpdated",

@@ -20,16 +20,17 @@ label in front of it:
 | World Model | **Partial** | `robot/state/` — per-robot state with an age on every entry and a store interface; no obstacle map, no tracked entities |
 | Memory (robot-scoped) | **Planned** | conversation memory exists (`core/providers/memory/`); spatial, episodic and person memory do not |
 | Behavior Engine | **Planned** | nothing in the tree |
-| Action Executor | **Planned** | nothing in the tree |
-| Safety | **Planned** | nothing in the tree |
+| Action Executor | **Implemented** | `robot/actions/` — ten semantic actions, the lifecycle, the queue and the resource ledger; see [robot-actions.md](robot-actions.md) |
+| Safety | **Implemented**, as a policy filter | `robot/safety/` — deterministic policy, configurable limits, emergency-stop latch, supervisory watchdog. Not a guarantee: [safety.md](safety.md) |
 
 Concretely: `main/nilo-server/robot/` holds the protocol registry, the robot domain layer
-(`robot/state/`, `robot/events/`, `robot/devices/`) and the two modules that wire it into a
-session (`robot/runtime.py`, `robot/session.py`). There is no actions package, no behaviour
-engine, no personality, no simulator and no safety policy. Nothing here is running code
-unless it is marked **Implemented**. Planned module paths below are written **without
-backticks** on purpose: `scripts/check_docs.py` fails the build when a backticked repository
-path does not exist, and these do not exist yet.
+(`robot/state/`, `robot/events/`, `robot/devices/`), the simulator (`robot/simulator/`), the
+action and safety layers (`robot/actions/`, `robot/safety/`) and the two modules that wire
+it all into a session (`robot/runtime.py`, `robot/session.py`). There is no behaviour
+engine, no personality and no LLM-facing bridge yet. Nothing here is running code unless it
+is marked **Implemented**. Planned module paths below are written **without backticks** on
+purpose: `scripts/check_docs.py` fails the build when a backticked repository path does not
+exist, and these do not exist yet.
 
 Phases and acceptance criteria live in [robot-roadmap.md](robot-roadmap.md); the safety
 policy is [safety.md](safety.md); the wire format is [protocol.md](protocol.md) and the
@@ -215,36 +216,59 @@ Robot work adds tool functions that validate and enqueue rather than act (§5), 
 summary in the prompt, and a hard rule about what may appear in a schema. The agent stays in
 `core/`; the robot tool vocabulary lives in robot/actions, registered through seam ③ (§4.1).
 
-### 2.8 Action Executor — **Planned**
+### 2.8 Action Executor — **Implemented**
 
 Owns every action from request to terminal state. In: action requests from the Agent and
 the Behavior Engine. Out: at most one device command per contended resource at a time.
+Module: `robot/actions/`; reference: [robot-actions.md](robot-actions.md).
 
 Lifecycle: `PENDING → STARTING → RUNNING → SUCCEEDED | FAILED | CANCELLED | TIMED_OUT |
-REJECTED`. Resource claims over DRIVE, HEAD, LIFT, DISPLAY, AUDIO and CAMERA arbitrate
-between a behaviour that wants to look around and a user who just said "come here" — the
-user wins, the behaviour is preempted, and preemption is a state transition with an
-observable outcome, not a dropped request.
+REJECTED`, with illegal transitions raising rather than being absorbed. Resource claims over
+DRIVE, HEAD, LIFT, DISPLAY, AUDIO and CAMERA arbitrate between a behaviour that wants to
+look around and a user who just said "come here" — the user wins, the behaviour is
+preempted, and preemption is a state transition with an observable outcome, not a dropped
+request. The ledger maps each resource to its single owner, which *is* the mutual exclusion.
 
-The gap today is specific: there is **no cancellation path for an in-flight device tool
-call.** `call_mcp_tool` registers a future that only its own `await` ever settles or
-clears; the unified tool handler's cleanup never touches pending call results; nothing rejects those
-futures when the socket drops. A motion command issued as the connection dies leaves a
-future hanging while the robot keeps moving (R6). Module: robot/actions.
+Four properties are worth naming here because each exists to work around something in the
+inherited server: **submit never blocks on hardware** (the chat loop awaits tool futures
+sequentially on a five-worker pool with no cancellation); **safety is evaluated twice**,
+once at submission and again immediately before the device call, because the world changes
+while an action waits in a queue; **every dispatch carries an explicit 2 s timeout** rather
+than the inherited 30 s default; and **completion is correlated by the device's own action
+id**, so a duplicate notification resolves to an action that was already retired and is
+dropped rather than settling something twice.
 
-### 2.9 Safety — **Planned**, and deliberately the weaker of two layers
+The gap it works around is still there and is still specific: there is **no cancellation
+path for an in-flight device tool call.** `call_mcp_tool` registers a future that only its
+own `await` ever settles or clears; the unified tool handler's cleanup never touches pending
+call results; nothing rejects those futures when the socket drops (R6). The executor marks
+such an action `TIMED_OUT` and attempts a stop — it cannot recall the command the device
+already accepted.
 
-Clamps or rejects every action request, supervises watchdogs, escalates. In: every action
-request plus the world model. Out: an allowed request with parameters clamped to limits, or
-a rejection with a reason.
+### 2.9 Safety — **Implemented**, and deliberately the weaker of two layers
+
+Admits or rejects every action request, supervises deadlines, latches an emergency stop. In:
+every action request plus the world model. Out: an allowed request, or a **typed rejection**
+carrying the reason and the number that failed. Module: `robot/safety/`.
+
+It **rejects rather than clamps**. A request beyond a configured limit comes back `REJECTED`,
+not silently reduced to the maximum, because silent clamping hides the bug that produced a
+40-metre "move" until the day the ceiling is wrong. The one value it adjusts is a
+caller-supplied timeout, and only downwards, which fires the watchdog sooner.
+
+`robot/safety/policy.py` is a pure function of its arguments — it reads no clock, holds no
+counter and consults no global — so the same request in the same world is decided the same
+way every time, and an incident can be replayed rather than argued about.
 
 This layer is a **policy filter, not a guarantee**, and the architecture says so out loud.
 It cannot be a guarantee, because the process it runs in can be terminated mid-motion
 (`core/connection.py:ConnectionHandler.handle_restart` calls `os._exit(0)` from a daemon
 thread, skipping every `finally`), can be stalled by a global collection pass
 (`core/utils/gc_manager.py` walks `gc.get_objects()` twice every 300 s), and has no way to
-cancel a command the device already accepted. The guarantee lives in firmware: §3 and
-[safety.md](safety.md). Module: robot/safety.
+cancel a command the device already accepted. Its watchdog therefore runs on its own thread,
+and that still does not make it authoritative. The guarantee lives in firmware: §3 and
+[safety.md](safety.md), which names each protection firmware must implement independently
+and what it does when this process dies.
 
 ### 2.10 Device Protocol — **Implemented**
 
@@ -288,8 +312,11 @@ It requests a small, bounded, semantic vocabulary:
 
 Four properties make that vocabulary safe to hand to a language model:
 
-1. **Bounded.** Every numeric parameter has a minimum, a maximum and a unit fixed by the
-   schema, not by the caller. Out-of-range is clamped and logged, not honoured.
+1. **Bounded.** Every numeric parameter has a minimum, a maximum and a unit fixed by
+   configured limits, not by the caller. Out-of-range is **rejected** with a typed reason
+   that reaches the caller — not clamped, and not honoured. (Earlier drafts of this page
+   said "clamped"; the implemented behaviour and the roadmap's acceptance criterion are
+   rejection, for the reason given in §2.9.)
 2. **Terminating.** Every action has a deadline. There is no "drive forward" without a
    distance or a duration.
 3. **Semantic.** The arguments describe an intent in the world, not a signal on a pin.
@@ -341,8 +368,9 @@ guarded server-side `move`, inverting the whole design. Therefore:
 2. Every robot tool name is namespaced `robot_*`.
 3. At session start the bridge asserts that no device-advertised tool collides with a
    `robot_*` name, and that raw-actuator device tools are not exposed to the LLM.
-4. A lint rule (§7) mechanically forbids any LLM-facing module from importing a motion
-   primitive.
+4. A layering test (§7) mechanically forbids any LLM-facing module from importing a
+   motion primitive, and forbids `robot/safety` from importing the action machinery it
+   judges, or behaviour and personality at all.
 
 ---
 
@@ -602,11 +630,17 @@ flowchart TB
 Safety sits **below** behaviour and personality on purpose: personality may influence which
 action is chosen, never whether it is allowed.
 
-The rules are meant to be enforced mechanically, not by review. `main/nilo-server/.ruff.toml`
-already documents the two-tier plan — a bug-only floor for the whole tree, and a stricter
-`robot/` configuration layered on top — and `mypy.ini` is already strict for `robot.*` and
-ignores the untyped inherited tree. A banned-import rule expressing the table above is a
-roadmap item ([robot-roadmap.md](robot-roadmap.md), Phase 0). See
+The rules are enforced mechanically, not by review. **The table above is a test**:
+`main/nilo-server/tests/robot/test_layering.py` parses every module under `robot/` and fails
+on an import the table forbids, at module scope or inside a function. It checks the source
+rather than importing it, so a lazily-imported cycle cannot hide behind an import that
+happens not to run, and it separately asserts that nothing under `robot/` imports `core/`,
+`config/` or `plugins/` at module scope — `config/logger.py` imports `robot.__version__`, so
+an eager `core` import would be a cycle paid by every process that logs.
+
+Two other mechanical layers back it up. `main/nilo-server/.ruff.toml` is the repo-wide
+bug-only floor (a stricter `robot/` configuration remains a Phase 0 roadmap item), and
+`mypy.ini` is strict for `robot.*` and ignores the untyped inherited tree. See
 [development.md](development.md) for how to run them.
 
 ---
@@ -682,7 +716,8 @@ Stated so that nothing here is an undocumented assumption.
 ## Related pages
 
 [robot-domain.md](robot-domain.md) — the domain layer that is implemented ·
-[safety.md](safety.md) — the safety policy and what actuation authorisation requires ·
+[robot-actions.md](robot-actions.md) — the action and safety layers, as implemented ·
+[safety.md](safety.md) — the safety split, and what firmware must implement itself ·
 [protocol.md](protocol.md) — the device wire protocol and the route registry ·
 [mcp.md](mcp.md) — the tool channel robot commands ride on ·
 [robot-roadmap.md](robot-roadmap.md) — phases and acceptance criteria ·

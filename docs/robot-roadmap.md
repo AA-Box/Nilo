@@ -3,10 +3,13 @@
 Implementation phases and acceptance criteria for the architecture in
 [robot-architecture.md](robot-architecture.md).
 
-Nilo today is a voice/vision session backend with a device protocol registry. The robot
-domain — actions, safety policy, world model, behaviour, personality, memory, simulator —
-is **not implemented**. This page is the plan for building it, and the honest boundary
-between what runs and what is design. Nothing below Phase 0 exists in the tree.
+Nilo is a voice/vision session backend that has grown a robot subsystem. Phases 0 to 3 have
+landed: the domain layer, the registry and session seam, the simulator, and the action and
+safety layers ([robot-domain.md](robot-domain.md), [robot-simulator.md](robot-simulator.md),
+[robot-actions.md](robot-actions.md)). The behaviour engine, personality, robot memory, the
+LLM seam and the management API are **not implemented**. This page is the plan, and the
+honest boundary between what runs and what is design: each phase below says which half it is
+in, and a **Delivered** note means the code is in the tree.
 
 Each phase is independently shippable and leaves the repository green. A phase is done when
 **every** acceptance criterion is met — criteria are written to be mechanically checkable,
@@ -219,8 +222,24 @@ runs a full voice turn with the robot subsystem loaded.
 The core of the design rule. No LLM involved yet; actions are driven from tests.
 
 **Build:** **robot/actions/** (model, lifecycle, queue, resource claims), **robot/safety/**
-(policy, limits, watchdog, e-stop). The intended design is written up under "Planned" in
-[safety.md](safety.md); this phase implements it.
+(policy, limits, watchdog, e-stop).
+
+**Delivered** (see [robot-actions.md](robot-actions.md)): `robot/actions/` — ten semantic
+action specs, the lifecycle object, the priority queue and resource ledger, the registry
+that correlates device completions, and the executor that is the only thing which calls a
+device; `robot/safety/` — the deterministic policy, frozen configurable limits with an
+optional YAML file, the sticky emergency-stop latch, and a watchdog on its own thread with
+per-action deadlines plus a 500 ms supervisory sweep. `RobotRuntime.actions` and
+`runtime.robot(id)` expose it, and `robot/simulator/` grew the `robot.follow.target` tool and
+a `drop_motion_completion` fault so every behaviour above is testable without hardware.
+[safety.md](safety.md) was rewritten in the same change: its "Planned" half is now "Motion
+safety", with an explicit firmware contract naming what the robot must implement itself and
+what each protection does when the Python process dies.
+
+**Still open:** the LLM-facing bridge and its tool schemas (Phase 4), speech as an `AUDIO`
+resource claim (Phase 6), and the stricter `robot/` ruff configuration (Phase 0.1) — the
+layering table is enforced by `tests/robot/test_layering.py`, which parses every module under
+`robot/`, rather than by a banned-import lint rule.
 
 **Key constraints** (robot-architecture §2.8, §2.9, §3.1, R6, R7):
 
@@ -246,22 +265,33 @@ The core of the design rule. No LLM involved yet; actions are driven from tests.
 
 ### Acceptance criteria
 
-* A property-based test over the lifecycle: no sequence of events reaches an illegal state
-  or leaks a resource claim.
-* A `move` beyond the configured limit is `REJECTED` with a typed reason, not clamped
-  silently, and the rejection reaches the caller.
-* A `move` with a cliff sensor asserted is `REJECTED` regardless of who requested it —
-  parameterized over LLM-originated, behaviour-originated and API-originated requests.
-* Watchdog: with the device link severed mid-action, the action reaches `TIMED_OUT` and a
-  stop is attempted within the configured budget. Tested by having the simulator stop
-  responding, not by mocking the clock away entirely.
-* E-stop: every queued action is `CANCELLED` and no new action is accepted until explicitly
-  cleared.
-* A test asserts that the safety package imports nothing from the behaviour or personality
-  packages — enforced by the Phase 0.1 lint rule, and asserted again here.
-* [safety.md](safety.md) is updated in the same change: which protections are duplicated in
-  firmware, which exist only in the backend, and the failure mode of each when the Python
-  process dies. Backend-only protections are, by definition, not guarantees.
+* **Done.** A property-based test over the lifecycle: no sequence of events reaches an
+  illegal state or leaks a resource claim. `tests/robot/test_actions.py` enumerates all 64
+  status pairs exhaustively (the space is small enough to prove rather than sample) and runs
+  2000 seeded random walks; `tests/robot/test_queue.py` runs 1000 interleaved claims and
+  releases asserting no subsystem is ever double-booked and no terminal action holds a claim.
+* **Done.** A `move` beyond the configured limit is `REJECTED` with a typed reason, not
+  clamped silently, and the rejection reaches the caller — with the number that failed in the
+  message. `tests/robot/test_safety.py`, `tests/robot/test_executor.py`, and
+  `tests/integration/test_actions_e2e.py` (which also asserts nothing reached the device).
+* **Done.** A `move` with a cliff sensor asserted is `REJECTED` regardless of who requested
+  it — parameterized over all five `ActionSource` values in both the unit and the integration
+  suite, the latter driven by a cliff the *simulator* reports over the wire.
+* **Done.** Watchdog: `tests/integration/test_actions_e2e.py` severs the link mid-action and
+  the action is cancelled; a `drop_motion_completion` fault leaves a live, healthy session in
+  which the device never reports completion, and the real threaded watchdog marks the action
+  `TIMED_OUT` and a stop reaches the device. The clock is not mocked away:
+  `tests/robot/test_watchdog.py` additionally shows a deadline firing while the event loop is
+  blocked in a synchronous sleep.
+* **Done.** E-stop: every queued and running action is `CANCELLED`, the robot itself stops,
+  and no new action is accepted from any source until `clear_emergency_stop` is called.
+* **Done.** A test asserts that the safety package imports nothing from the behaviour or
+  personality packages — `tests/robot/test_layering.py` asserts the whole §7 import table by
+  parsing the source, and separately that `robot/safety` imports only `robot/state`. It is
+  not yet also a lint rule; Phase 0.1 remains open.
+* **Done.** [safety.md](safety.md) is updated in the same change: which protections are
+  duplicated in firmware, which exist only in the backend, and the failure mode of each when
+  the Python process dies. Backend-only protections are, by definition, not guarantees.
 
 ---
 

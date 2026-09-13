@@ -35,15 +35,22 @@ than a smart speaker. The direction is described in [docs/robot-architecture.md]
 * Test suite, lint (Ruff), strict typing for `robot/` (mypy), Docker image and Compose file
 
 * Robot simulator (`main/nilo-server/robot/simulator/`): a complete simulated robot that connects over the real
-  WebSocket route, publishes 15 hardware capabilities as device MCP tools, moves over time, senses a configurable
+  WebSocket route, publishes 16 hardware capabilities as device MCP tools, moves over time, senses a configurable
   room, renders camera frames, reports telemetry as MCP notifications, injects failures and plays scenarios
   ([docs/robot-simulator.md](docs/robot-simulator.md))
 * Device telemetry ingestion (`main/nilo-server/robot/telemetry.py`): `notifications/*` frames become world state
   and typed events instead of a log line
+* Robot action layer (`main/nilo-server/robot/actions/`): ten semantic actions with an explicit lifecycle, a
+  priority queue, resource claims over `DRIVE / HEAD / LIFT / DISPLAY / AUDIO / CAMERA` so two actions cannot
+  command the same hardware, and `await robot.move(...)` on top ([docs/robot-actions.md](docs/robot-actions.md))
+* Robot safety policy (`main/nilo-server/robot/safety/`): deterministic admission against configurable limits and
+  live sensor state, typed rejections (never silent clamping), a sticky emergency-stop latch, and a supervisory
+  watchdog on its own thread. A **policy filter, not a guarantee** — firmware owns every guarantee
+  ([docs/safety.md](docs/safety.md))
 
 **In development:**
 
-* Semantic action vocabulary (`move`, `turn`, `look_at`, `follow`, `play_animation`, `stop`) and the action executor
+* The LLM seam: `robot_*` tools that expose the semantic vocabulary to the model
 
 **Planned:** behaviour engine, personality and emotion model, world model, on-device vision
 pipeline, robot memory, management API, physical robot firmware. See
@@ -145,16 +152,24 @@ Robot
 ├── Memory
 ├── Behavior Engine
 ├── Agent (LLM + tools ✓)
-├── Action Executor
-├── Safety
+├── Action Executor ✓
+├── Safety ✓ (policy only — firmware owns every guarantee)
 └── Device Protocol ✓
 ```
 
 The rule that shapes everything: **the LLM never controls motors.** It requests semantic actions —
 `move`, `turn`, `look_at`, `follow`, `play_animation`, `stop` — with bounded parameters; the
-backend validates them against a safety policy; the robot's firmware executes trajectories and
-owns acceleration limits, collision and cliff avoidance, watchdogs and emergency stop. See
-[docs/robot-architecture.md](docs/robot-architecture.md) and [docs/safety.md](docs/safety.md).
+backend admits or rejects each one against a safety policy; the robot's firmware executes
+trajectories and owns acceleration limits, collision and cliff avoidance, watchdogs and
+emergency stop.
+
+**Backend safety is a second layer only.** It rejects and supervises; it never guarantees.
+Cliff protection, the motor watchdog, current and thermal protection, physical motion bounds,
+acceleration constraints and a local emergency stop must be implemented independently in
+firmware, because this process can be killed or stalled mid-motion. Do not connect a machine
+that can hurt someone and rely on the backend to stop it. See
+[docs/robot-actions.md](docs/robot-actions.md), [docs/robot-architecture.md](docs/robot-architecture.md)
+and [docs/safety.md](docs/safety.md).
 
 ## Development
 
