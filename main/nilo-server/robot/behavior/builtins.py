@@ -31,6 +31,7 @@ from robot.behavior.base import (
     BehaviorPriority,
     BehaviorResult,
 )
+from robot.behavior.tracking import decide_follow, decide_look_at
 from robot.behavior.tuning import BehaviorTuning
 from robot.state.actions import Resource
 from robot.state.world import Entity, EntityType
@@ -39,6 +40,8 @@ from robot.state.world import Entity, EntityType
 #: any one behaviour instance and is keyed by more than the behaviour name.
 ASLEEP = "state:asleep"
 GREETED = "greeted:"
+LOOKED_AT = "looked_at:"
+FOLLOWED = "followed:"
 INVESTIGATED = "investigated:"
 VISITED = "visited:"
 
@@ -376,9 +379,20 @@ class LookAtPersonBehavior(Behavior):
         target = self._target(context)
         if target is None or target.image_point is None:
             return BehaviorResult.skipped("the person is no longer visible")
-        point = target.image_point
-        record = await context.robot.look_at(x_pct=int(point.x * 100), y_pct=int(point.y * 100))
-        return BehaviorResult.completed(f"looking at {target.id}", record)
+        # Rate-limited and proportional (robot/behavior/tracking.py): perception can
+        # report far faster than a head can move, and commanding the whole error makes it
+        # oscillate.
+        decision = decide_look_at(
+            target.image_point,
+            now=context.now,
+            last_command_at=context.memory.at(LOOKED_AT + target.id),
+            tuning=context.tuning,
+        )
+        if not decision:
+            return BehaviorResult.skipped(decision.reason)
+        context.memory.mark(LOOKED_AT + target.id, context.now)
+        record = await context.robot.look_at(x_pct=decision.x_pct, y_pct=decision.y_pct)
+        return BehaviorResult.completed(f"looking at {target.id}: {decision.reason}", record)
 
 
 class ApproachPersonBehavior(Behavior):
@@ -429,11 +443,16 @@ class ApproachPersonBehavior(Behavior):
 
 
 class FollowPersonBehavior(Behavior):
-    """Hand the target to the device's own follow loop, for a bounded time.
+    """Keep a tracked person in front of the robot.
 
-    Deliberately delegated rather than implemented as a drive loop up here: the device
-    closes the loop far faster than a round trip through this process can
-    (docs/robot-actions.md), and the action layer bounds how long it may run.
+    Two paths, and the choice is made on what the world actually knows. With an
+    ``image_point`` — a target vision is tracking — the loop is closed here, deterministically
+    and one bounded leg at a time (``robot/behavior/tracking.py``), which is what makes
+    following testable without a device. Without one, the target id is handed to the
+    device's own follow tool, which closes the loop far faster than a round trip through
+    this process can (docs/robot-actions.md).
+
+    An LLM is not involved in either path.
     """
 
     name = "follow_person"
@@ -469,12 +488,32 @@ class FollowPersonBehavior(Behavior):
         target = self._target(context)
         if target is None:
             return BehaviorResult.skipped("nobody to follow")
-        record = await context.robot.follow(
-            target.id,
-            duration_ms=context.tuning.follow_duration_ms,
-            stop_distance_mm=context.tuning.follow_stop_distance_mm,
+        if target.image_point is None:
+            record = await context.robot.follow(
+                target.id,
+                duration_ms=context.tuning.follow_duration_ms,
+                stop_distance_mm=context.tuning.follow_stop_distance_mm,
+            )
+            return BehaviorResult.completed(f"handed {target.id} to the device follow loop", record)
+
+        offset_x, _ = target.image_point.offset_from_centre()
+        decision = decide_follow(
+            offset_x=offset_x,
+            distance_mm=target.position.distance_mm if target.position else 0,
+            now=context.now,
+            last_command_at=context.memory.at(FOLLOWED + target.id),
+            tuning=context.tuning,
+            blocked=context.world.blocked,
         )
-        return BehaviorResult.completed(f"followed {target.id}", record)
+        if decision.stop:
+            record = await context.robot.stop(decision.reason)
+            return BehaviorResult.completed(f"stopped following {target.id}", record)
+        if not decision.acts:
+            return BehaviorResult.skipped(decision.reason)
+        context.memory.mark(FOLLOWED + target.id, context.now)
+        turn = await context.robot.turn(angle_deg=decision.turn_deg) if decision.turn_deg else None
+        move = await context.robot.move(distance_mm=decision.move_mm) if decision.move_mm else None
+        return BehaviorResult.completed(f"following {target.id}: {decision.reason}", turn, move)
 
 
 # -- curiosity -----------------------------------------------------------------------------------------------------
@@ -675,7 +714,9 @@ def default_behaviors(**overrides: Any) -> list[Behavior]:
 __all__ = [
     "ASLEEP",
     "BUILTIN_BEHAVIORS",
+    "FOLLOWED",
     "GREETED",
+    "LOOKED_AT",
     "INVESTIGATED",
     "ApproachPersonBehavior",
     "BoredBehavior",

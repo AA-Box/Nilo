@@ -198,16 +198,25 @@ def test_looking_at_a_person_needs_them_to_be_off_centre():
     assert "look_at_person" in {c.name for c in scheduler.evaluate(off).candidates if c.eligible}
 
 
-async def test_looking_at_a_person_commands_the_normalized_point_as_percentages():
-    greeted = make_scheduler(tuning=NO_JITTER)
-    scheduler, robot, clock = greeted
+async def test_looking_at_a_person_commands_a_proportional_step_towards_them():
+    """Proportional, not absolute: commanding the whole error is what makes a head
+    oscillate (docs/robot-vision.md)."""
+    scheduler, robot, clock = make_scheduler(tuning=NO_JITTER)
     world = behavior_world(
         entities=[visitor(known=True, image_point=ImagePoint(x=0.2, y=0.8, width=0.2, height=0.3))]
     )
     await run_once(scheduler, world)  # greeting wins first
     clock.advance(1.0)
     await run_once(scheduler, world)
-    assert robot.arguments("look_at")[0] == {"x_pct": 20, "y_pct": 80}
+    commanded = robot.arguments("look_at")[0]
+    gain = BehaviorTuning().look_at_gain
+    assert commanded == {
+        "x_pct": round((0.5 + (0.2 - 0.5) * gain) * 100),
+        "y_pct": round((0.5 + (0.8 - 0.5) * gain) * 100),
+    }
+    # Towards the target, never past it.
+    assert 20 < commanded["x_pct"] < 50
+    assert 50 < commanded["y_pct"] < 80
     await scheduler.aclose()
 
 

@@ -8,8 +8,9 @@ landed: the domain layer, the registry and session seam, the simulator, and the 
 safety layers ([robot-domain.md](robot-domain.md), [robot-simulator.md](robot-simulator.md),
 [robot-actions.md](robot-actions.md)), and so have the world model and the behaviour engine
 ([robot-behavior.md](robot-behavior.md)), and personality, emotion and expressive animation
-([robot-personality.md](robot-personality.md), [robot-animation.md](robot-animation.md)).
-Robot vision, robot memory, the LLM seam and the management API are **not implemented**. This page is the plan, and the
+([robot-personality.md](robot-personality.md), [robot-animation.md](robot-animation.md))
+and robot vision ([robot-vision.md](robot-vision.md)). Robot memory, the LLM seam and the
+management API are **not implemented**. This page is the plan, and the
 honest boundary between what runs and what is design: each phase below says which half it is
 in, and a **Delivered** note means the code is in the tree.
 
@@ -361,7 +362,7 @@ Expose actions to the LLM. This is where the critical design rule becomes real.
 
 ## Phase 5 — Vision and world model
 
-**Build:** **robot/vision/**, extend `robot/state/`.
+**Build:** `robot/vision/`, extend `robot/state/`.
 
 **Delivered, world-model half** (see [robot-behavior.md](robot-behavior.md)):
 `robot/state/world.py` — entities (`robot`, `person`, `face`, `object`, `location`,
@@ -371,9 +372,20 @@ documented per-kind TTL and confidence half-life, applied by `WorldState.decay`.
 `robot/state/world_model.py` is the single writer: it folds connection and telemetry events
 off the bus into immutable snapshots, and `runtime.world` is the one instance.
 
-**Still open:** vision itself — the providers, the detectors, the tracker and the
-fixtures. Nothing yet produces the `person` and `object` entities the world model can now
-hold; they arrive from the simulator and from tests.
+**Delivered, vision half** (see [robot-vision.md](robot-vision.md)): `robot/vision/` —
+five provider protocols (frame source, provider, object detector, face detector, face
+recognizer) plus a tracker, each replaceable on its own; a snapshot pipeline that decodes,
+preprocesses, detects, recognizes, tracks, writes the world model and publishes seven typed
+events; a face registry that holds embeddings in one place and hands out references;
+configurable frame retention that defaults to keeping nothing; and per-robot latency
+metrics. OpenCV and Ultralytics are optional and imported lazily; the defaults
+(`HeaderVisionProvider`, `NullDetector`) need nothing installed. `robot/behavior/tracking.py`
+turns coordinates into rate-limited look-at and deterministic, bounded following, and the
+simulator grew three perception scenarios plus eight committed fixture frames under
+`main/nilo-server/tests/robot/fixtures/vision/`.
+
+**Still open:** the vision *language model* seam — asking a VLLM about a frame — which is
+what the `core/api/vision_handler.py` and auth-token constraints below are about.
 
 **Key constraints** (robot-architecture §2.4, R11):
 
@@ -392,12 +404,15 @@ hold; they arrive from the simulator and from tests.
 
 ### Acceptance criteria
 
-* Tracking tests run against recorded frames in a committed fixtures directory under
-  `tests/robot/`; no camera, no cloud, no network in CI.
-* A target persists across frames with a stable id and decays out of the world model on a
-  documented schedule; a test proves the decay.
+* **Done.** Tracking tests run against recorded frames in a committed fixtures directory
+  under `main/nilo-server/tests/robot/fixtures/vision/`; no camera, no cloud, no network in
+  CI, and the eight frames are rendered by the simulator's own camera.
+* **Done.** A target persists across frames with a stable id and decays out of the world
+  model on a documented schedule; `tests/robot/test_vision.py` proves the track timeout and
+  `tests/robot/test_world.py` the entity decay.
 * Vision never blocks the session event loop: a test asserts a voice turn completes within
-  budget while a perception request is in flight.
+  budget while a perception request is in flight. (The heavyweight detector already runs in
+  a thread; the end-to-end assertion belongs with the LLM seam.)
 * A session older than the token lifetime either still works (refresh implemented) or fails
   with a typed, logged error — not a bare 401 swallowed somewhere.
 

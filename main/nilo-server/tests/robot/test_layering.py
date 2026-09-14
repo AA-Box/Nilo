@@ -37,6 +37,7 @@ ROBOT_MODULES = (
     "robot.behavior",
     "robot.personality",
     "robot.animation",
+    "robot.vision",
     "robot.runtime",
     "robot.session",
 )
@@ -89,6 +90,9 @@ FORBIDDEN: dict[str, frozenset[str]] = {
     "animation": frozenset({"actions", "behavior", "personality", "devices", "safety", "simulator"}),
     # Personality influences which action is proposed. It cannot see the layer that
     # decides whether one is allowed.
+    # Vision writes the world model and publishes events. Deciding what to do about a
+    # person, and commanding the robot to do it, is one layer up.
+    "vision": frozenset({"actions", "animation", "behavior", "personality", "devices", "safety", "simulator"}),
     "personality": frozenset(
         {"actions", "animation", "behavior", "devices", "safety", "simulator", "vision", "memory"}
     ),

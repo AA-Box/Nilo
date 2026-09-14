@@ -53,6 +53,11 @@ than a smart speaker. The direction is described in [docs/robot-architecture.md]
   decay towards trait-derived baselines, plus animations defined as YAML data — adding one is adding
   a file ([docs/robot-personality.md](docs/robot-personality.md),
   [docs/robot-animation.md](docs/robot-animation.md))
+* Robot vision (`main/nilo-server/robot/vision/`): a snapshot pipeline — capture, decode, detect,
+  track, world model, events — behind five replaceable provider protocols, with normalized 0.0-1.0
+  coordinates, face identity that keeps embeddings in one place, frame retention that defaults to
+  keeping nothing, and latency metrics. OpenCV and YOLO are optional and lazily imported; the
+  defaults need nothing installed ([docs/robot-vision.md](docs/robot-vision.md))
 * Robot safety policy (`main/nilo-server/robot/safety/`): deterministic admission against configurable limits and
   live sensor state, typed rejections (never silent clamping), a sticky emergency-stop latch, and a supervisory
   watchdog on its own thread. A **policy filter, not a guarantee** — firmware owns every guarantee

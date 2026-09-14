@@ -27,7 +27,8 @@ robot/            Nilo-owned code: protocol/ (routes), state/ (models + store + 
                   behavior/ (the utility-scored autonomy engine: tuning, scheduler, the
                   sixteen built-in behaviours, the explain CLI), personality/ (traits, the
                   internal control variables, the per-robot store), animation/ (YAML
-                  animations and the engine that plays them), telemetry.py (device
+                  animations and the engine that plays them), vision/ (the snapshot
+                  perception pipeline: providers, tracker, faces, metrics), telemetry.py (device
                   notifications -> world state), simulator/ (a fake robot on a real socket),
                   runtime.py, session.py
 tests/            pytest; tests/conftest.py points NILO_CONFIG at tests/fixtures/test_config.yaml.
@@ -48,6 +49,9 @@ Rules of thumb:
 * The behaviour engine never consults an LLM, never reads the wall clock, and never writes
   a number into a scoring function — tuning lives in `robot/behavior/tuning.py` and a test
   parses the source to prove it (`docs/robot-behavior.md`).
+* Vision is snapshot-based and every provider is optional: OpenCV and Ultralytics are
+  imported lazily and the defaults need nothing installed. Coordinates are normalized 0.0-1.0,
+  never pixels, and frames are ephemeral by default (`docs/robot-vision.md`).
 * Animations are YAML data under `robot/animation/library/`; adding one must never require a
   Python change (`docs/robot-animation.md`). Personality biases which action is proposed and
   can never reach safety — say "internal control variables", never "emotions"

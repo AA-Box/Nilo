@@ -41,8 +41,6 @@ PLANNED_PATHS = {
     "robot/agent",
     "robot/api",
     "robot/memory",
-    "robot/vision",
-    "robot/tests/fixtures",
 }
 
 # Files allowed to contain "xiaozhi". The legacy protocol was removed, so the only legitimate
