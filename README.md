@@ -48,6 +48,24 @@ than a smart speaker. The direction is described in [docs/robot-architecture.md]
   utility-scored autonomy — sixteen behaviours, four autonomy modes, seeded randomness, and
   `python -m robot.behavior explain` to ask why it chose what it chose. **No LLM is involved in
   deciding what the robot does** ([docs/robot-behavior.md](docs/robot-behavior.md))
+* Robot personality and expressive animation (`main/nilo-server/robot/personality/`,
+  `main/nilo-server/robot/animation/`): six stable traits and seven internal control variables that
+  decay towards trait-derived baselines, plus animations defined as YAML data — adding one is adding
+  a file ([docs/robot-personality.md](docs/robot-personality.md),
+  [docs/robot-animation.md](docs/robot-animation.md))
+* Robot vision (`main/nilo-server/robot/vision/`): a snapshot pipeline — capture, decode, detect,
+  track, world model, events — behind five replaceable provider protocols, with normalized 0.0-1.0
+  coordinates, face identity that keeps embeddings in one place, frame retention that defaults to
+  keeping nothing, and latency metrics. OpenCV and YOLO are optional and lazily imported; the
+  defaults need nothing installed ([docs/robot-vision.md](docs/robot-vision.md))
+* Robot memory (`main/nilo-server/robot/memory/`): four stores — working, episodic, semantic and
+  person — over SQLite with migrations behind an interface Postgres can implement, optional
+  embeddings (the robot works without them), token-budgeted retrieval that explains every item it
+  returns, consolidation that tracks provenance and never lets a model overwrite a fact it is less
+  sure about, and real delete operations ([docs/robot-memory.md](docs/robot-memory.md))
+* Robot admin API (`main/nilo-server/robot/api/`): its own aiohttp app, its own port, its own token —
+  inspect memory, see what would go into a prompt, delete a person, and ask why the robot is doing
+  what it is doing. No endpoint moves a robot
 * Robot safety policy (`main/nilo-server/robot/safety/`): deterministic admission against configurable limits and
   live sensor state, typed rejections (never silent clamping), a sticky emergency-stop latch, and a supervisory
   watchdog on its own thread. A **policy filter, not a guarantee** — firmware owns every guarantee

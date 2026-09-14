@@ -470,11 +470,15 @@ seams. What exists today:
 | Limits, deterministic policy, e-stop, watchdog | `robot/safety/` | [safety.md](safety.md) |
 | World model (people, objects, attention, interactions) | `robot/state/world.py` | [robot-behavior.md](robot-behavior.md) |
 | Utility-scored autonomy, sixteen behaviours, the explain CLI | `robot/behavior/` | [robot-behavior.md](robot-behavior.md) |
+| Traits, internal control variables, their decay and persistence | `robot/personality/` | [robot-personality.md](robot-personality.md) |
+| YAML animations, priority, resource ownership, transitions | `robot/animation/` | [robot-animation.md](robot-animation.md) |
+| Snapshot perception, tracking, face identity, latency metrics | `robot/vision/` | [robot-vision.md](robot-vision.md) |
+| Working, episodic, semantic and person memory over SQLite | `robot/memory/` | [robot-memory.md](robot-memory.md) |
+| The admin API: memory inspection, deletion, and "why?" | `robot/api/` | [robot-memory.md](robot-memory.md) |
 
 `robot/__init__.py` carries `__version__`, which the logger stamps on every line.
 
-Still **planned**: the personality and emotion model, robot memory, robot vision, the
-LLM-facing bridge and the management API. The LLM is
+Still **planned**: the LLM-facing bridge, and binding the admin API into `app.py`. The LLM is
 deliberately never given a tool that sets motor, servo or PWM values, and the backend safety
 layer is a policy filter rather than a guarantee — firmware owns every guarantee
 ([safety.md](safety.md)).

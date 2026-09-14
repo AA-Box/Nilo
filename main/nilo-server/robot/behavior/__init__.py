@@ -60,7 +60,7 @@ from robot.behavior.builtins import (
     WakeBehavior,
     default_behaviors,
 )
-from robot.behavior.engine import BehaviorEngine, StaticWorld, WorldSource
+from robot.behavior.engine import AnimatedRobot, BehaviorEngine, StaticWorld, WorldSource
 from robot.behavior.scheduler import (
     BehaviorCandidate,
     BehaviorDecision,
@@ -71,6 +71,7 @@ from robot.behavior.tuning import BehaviorTuning, load_tuning, tuning_from_mappi
 
 __all__ = [
     "BUILTIN_BEHAVIORS",
+    "AnimatedRobot",
     "EXPRESSIVE_RESOURCES",
     "ApproachPersonBehavior",
     "AutonomyMode",

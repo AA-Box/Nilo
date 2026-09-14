@@ -20,7 +20,9 @@ import time
 from collections.abc import Callable, Iterable
 from typing import Any, Protocol
 
+from robot.animation.engine import AnimationEngine
 from robot.behavior.base import AutonomyMode, Behavior, Drives, RobotCommands
+from robot.state.actions import ActionRecord
 from robot.behavior.builtins import default_behaviors
 from robot.behavior.scheduler import BehaviorDecision, BehaviorRegistry, BehaviorScheduler
 from robot.behavior.tuning import BehaviorTuning
@@ -50,6 +52,45 @@ class StaticWorld:
         return self.world
 
 
+class AnimatedRobot:
+    """A robot handle whose ``play_animation`` goes through the animation engine.
+
+    An adapter rather than a change to every behaviour: a behaviour asks for
+    ``excited_greeting`` and does not care whether that is one device command or a
+    thirteen-step sequence with a transition on the end. Everything else is delegated
+    unchanged, so the animation engine cannot become a second path to the hardware.
+    """
+
+    def __init__(self, handle: RobotCommands, animations: AnimationEngine) -> None:
+        self.handle = handle
+        self.animations = animations
+
+    async def play_animation(self, name: str, **kwargs: Any) -> ActionRecord | None:
+        await self.animations.play(name)
+        return None
+
+    async def move(self, distance_mm: int, speed_mmps: int = 200, **kwargs: Any) -> ActionRecord:
+        return await self.handle.move(distance_mm, speed_mmps, **kwargs)
+
+    async def turn(self, angle_deg: int, speed_dps: int = 90, **kwargs: Any) -> ActionRecord:
+        return await self.handle.turn(angle_deg, speed_dps, **kwargs)
+
+    async def stop(self, reason: str = "stop requested", **kwargs: Any) -> ActionRecord:
+        return await self.handle.stop(reason, **kwargs)
+
+    async def look_at(self, x_pct: int = 50, y_pct: int = 50, **kwargs: Any) -> ActionRecord:
+        return await self.handle.look_at(x_pct, y_pct, **kwargs)
+
+    async def head_angle(self, pitch_deg: int = 0, yaw_deg: int = 0, **kwargs: Any) -> ActionRecord:
+        return await self.handle.head_angle(pitch_deg, yaw_deg, **kwargs)
+
+    async def set_expression(self, emotion: str, intensity_pct: int = 100, **kwargs: Any) -> ActionRecord:
+        return await self.handle.set_expression(emotion, intensity_pct, **kwargs)
+
+    async def follow(self, target_id: str, **kwargs: Any) -> ActionRecord:
+        return await self.handle.follow(target_id, **kwargs)
+
+
 class BehaviorEngine:
     """Autonomy for one robot: the scheduler, the behaviour set and the world it reads."""
 
@@ -66,9 +107,13 @@ class BehaviorEngine:
         clock: Callable[[], float] = time.monotonic,
         behaviors: Iterable[Behavior] | None = None,
         drives: Drives | None = None,
+        animations: AnimationEngine | None = None,
     ) -> None:
         self.robot_id = robot_id
         self._world = world
+        self.animations = animations
+        if animations is not None:
+            robot = AnimatedRobot(robot, animations)
         registry = BehaviorRegistry(default_behaviors() if behaviors is None else behaviors)
         self.scheduler = BehaviorScheduler(
             robot_id,
@@ -137,6 +182,8 @@ class BehaviorEngine:
 
     async def aclose(self) -> None:
         await self.scheduler.aclose()
+        if self.animations is not None:
+            await self.animations.aclose()
 
     # -- explaining ---------------------------------------------------------------------------
 
@@ -165,4 +212,4 @@ class BehaviorEngine:
         return f"<BehaviorEngine {self.robot_id} mode={self.mode.value} running={self.scheduler.running}>"
 
 
-__all__ = ["BehaviorEngine", "StaticWorld", "WorldSource"]
+__all__ = ["AnimatedRobot", "BehaviorEngine", "StaticWorld", "WorldSource"]

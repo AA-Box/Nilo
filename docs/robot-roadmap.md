@@ -7,8 +7,10 @@ Nilo is a voice/vision session backend that has grown a robot subsystem. Phases 
 landed: the domain layer, the registry and session seam, the simulator, and the action and
 safety layers ([robot-domain.md](robot-domain.md), [robot-simulator.md](robot-simulator.md),
 [robot-actions.md](robot-actions.md)), and so have the world model and the behaviour engine
-([robot-behavior.md](robot-behavior.md)). Personality, animation, robot vision, robot memory,
-the LLM seam and the management API are **not implemented**. This page is the plan, and the
+([robot-behavior.md](robot-behavior.md)), and personality, emotion and expressive animation
+([robot-personality.md](robot-personality.md), [robot-animation.md](robot-animation.md))
+robot vision ([robot-vision.md](robot-vision.md)) and robot memory with its admin API
+([robot-memory.md](robot-memory.md)). The LLM seam is **not implemented**. This page is the plan, and the
 honest boundary between what runs and what is design: each phase below says which half it is
 in, and a **Delivered** note means the code is in the tree.
 
@@ -360,7 +362,7 @@ Expose actions to the LLM. This is where the critical design rule becomes real.
 
 ## Phase 5 — Vision and world model
 
-**Build:** **robot/vision/**, extend `robot/state/`.
+**Build:** `robot/vision/`, extend `robot/state/`.
 
 **Delivered, world-model half** (see [robot-behavior.md](robot-behavior.md)):
 `robot/state/world.py` — entities (`robot`, `person`, `face`, `object`, `location`,
@@ -370,9 +372,20 @@ documented per-kind TTL and confidence half-life, applied by `WorldState.decay`.
 `robot/state/world_model.py` is the single writer: it folds connection and telemetry events
 off the bus into immutable snapshots, and `runtime.world` is the one instance.
 
-**Still open:** vision itself — the providers, the detectors, the tracker and the
-fixtures. Nothing yet produces the `person` and `object` entities the world model can now
-hold; they arrive from the simulator and from tests.
+**Delivered, vision half** (see [robot-vision.md](robot-vision.md)): `robot/vision/` —
+five provider protocols (frame source, provider, object detector, face detector, face
+recognizer) plus a tracker, each replaceable on its own; a snapshot pipeline that decodes,
+preprocesses, detects, recognizes, tracks, writes the world model and publishes seven typed
+events; a face registry that holds embeddings in one place and hands out references;
+configurable frame retention that defaults to keeping nothing; and per-robot latency
+metrics. OpenCV and Ultralytics are optional and imported lazily; the defaults
+(`HeaderVisionProvider`, `NullDetector`) need nothing installed. `robot/behavior/tracking.py`
+turns coordinates into rate-limited look-at and deterministic, bounded following, and the
+simulator grew three perception scenarios plus eight committed fixture frames under
+`main/nilo-server/tests/robot/fixtures/vision/`.
+
+**Still open:** the vision *language model* seam — asking a VLLM about a frame — which is
+what the `core/api/vision_handler.py` and auth-token constraints below are about.
 
 **Key constraints** (robot-architecture §2.4, R11):
 
@@ -391,12 +404,15 @@ hold; they arrive from the simulator and from tests.
 
 ### Acceptance criteria
 
-* Tracking tests run against recorded frames in a committed fixtures directory under
-  `tests/robot/`; no camera, no cloud, no network in CI.
-* A target persists across frames with a stable id and decays out of the world model on a
-  documented schedule; a test proves the decay.
+* **Done.** Tracking tests run against recorded frames in a committed fixtures directory
+  under `main/nilo-server/tests/robot/fixtures/vision/`; no camera, no cloud, no network in
+  CI, and the eight frames are rendered by the simulator's own camera.
+* **Done.** A target persists across frames with a stable id and decays out of the world
+  model on a documented schedule; `tests/robot/test_vision.py` proves the track timeout and
+  `tests/robot/test_world.py` the entity decay.
 * Vision never blocks the session event loop: a test asserts a voice turn completes within
-  budget while a perception request is in flight.
+  budget while a perception request is in flight. (The heavyweight detector already runs in
+  a thread; the end-to-end assertion belongs with the LLM seam.)
 * A session older than the token lifetime either still works (refresh implemented) or fails
   with a typed, logged error — not a bare 401 swallowed somewhere.
 
@@ -404,7 +420,7 @@ hold; they arrive from the simulator and from tests.
 
 ## Phase 6 — Behaviour engine and personality
 
-**Build:** `robot/behavior/`, **robot/personality/**, **robot/animation/**.
+**Build:** `robot/behavior/`, `robot/personality/`, `robot/animation/`.
 
 **Delivered, behaviour half** (see [robot-behavior.md](robot-behavior.md)):
 `robot/behavior/` — `tuning.py` (every number the engine compares against, loadable from
@@ -418,9 +434,20 @@ scores and can never command). Five structured debug events — `BehaviorEvaluat
 the whole decision, losers included. `runtime.behavior(robot_id)` wires an engine onto the
 action layer with `ActionSource.BEHAVIOR`.
 
-**Still open:** personality and the emotional state that feeds `BehaviorContext.drives`
-(today `NeutralDrives`, a midpoint constant), and the data-driven animation engine the
-behaviours' `play_animation` calls will route through.
+**Delivered, personality and animation halves** (see
+[robot-personality.md](robot-personality.md) and [robot-animation.md](robot-animation.md)):
+`robot/personality/` — six stable traits with presets and a YAML file, seven internal
+control variables that decay exponentially towards trait-derived baselines and are nudged
+by named stimuli, the event wiring that keeps them current, and a per-robot JSON store
+that persists the traits on change and the variables only coarsely and occasionally.
+`robot/animation/` — animations as YAML data (five channels mapped onto the resource
+ledger, offsets rather than cumulative delays), a library loader where a deployment
+directory may replace a shipped animation by name, thirteen starter animations, and an
+engine with play, cancel, priority, looping, transitions, resource ownership and the
+low-energy gate. Both are wired in by `runtime.behavior(robot_id)`.
+
+**Still open:** nothing in this phase. The animation ``audio`` channel is declared but
+skipped until speech becomes an ``AUDIO`` resource claim.
 
 **Key constraints** (robot-architecture §2.6, §7):
 
@@ -443,9 +470,12 @@ behaviours' `play_animation` calls will route through.
   behaviour 1000 times out of 1000 — asserted literally, a thousand evaluations in
   `tests/robot/test_behavior_scheduler.py`, which also proves registration order and two
   different seeds change nothing and something respectively.
-* A new animation is added in a PR that touches **only** a YAML file, and it plays.
-* A test sweeps every personality trait across its full range with a cliff asserted, and
-  the action is `REJECTED` in every case.
+* **Done.** A new animation is added in a PR that touches **only** a YAML file, and it
+  plays — asserted by a test that writes a YAML file to a temporary directory, loads it and
+  plays it, and by a second that proves the shipped set comes from the files alone.
+* **Done.** A test sweeps every personality trait across its full range with a cliff
+  asserted, and the action is `REJECTED` in every case — thirty parameterized cases in
+  `tests/robot/test_personality.py`, each one also asserting nothing reached the device.
 * **Done.** Four autonomy modes (`OFF / PASSIVE / NORMAL / FULL`) are implemented, and
   `tests/robot/test_autonomy.py` asserts the whole table — every built-in behaviour against
   every mode — plus that lowering the mode cancels what it would not have started.
@@ -454,7 +484,23 @@ behaviours' `play_animation` calls will route through.
 
 ## Phase 7 — Management API, memory, multi-robot
 
-**Build:** **robot/api/**, **robot/memory/**. Spend the 3-line `app.py` budget.
+**Build:** `robot/api/`, `robot/memory/`. Spend the 3-line `app.py` budget.
+
+**Delivered, memory and inspection halves** (see [robot-memory.md](robot-memory.md)):
+`robot/memory/` — four stores (working, episodic, semantic, person), a `MemoryStore`
+interface with a stdlib-`sqlite3` implementation behind it, ordered migrations recorded in
+a `schema_version` table, an optional `EmbeddingProvider` (the robot works with embeddings
+disabled, and a test proves it), token-budgeted ranked retrieval that explains every item
+it returns, a deterministic consolidation job that writes provenance and never lets a
+proposer overwrite a fact it is less confident about, and the privacy operations: delete a
+memory, delete a person and everything about them, clear a robot. `robot/api/` — an aiohttp
+admin app on its own port with its own constant-time-compared token, serving memory
+inspection, recall, consolidation, the delete paths and the behaviour engine's
+`why` explanation; it has no endpoint that can move a robot, and a test asserts that.
+
+**Still open:** binding the API into `app.py` (the 3-line budget) with the done-callback
+escalation — `robot/api/server.py:supervise` is written and unused until then — the
+per-device TTS/LLM construction, and the two-robot concurrency proof.
 
 **Key constraints** (robot-architecture §4.2, §4.3, R5, R11, R12):
 
@@ -482,16 +528,22 @@ behaviours' `play_animation` calls will route through.
 
 ### Acceptance criteria
 
-* The API enumerates connected robots, reports per-robot state, accepts a semantic action,
-  and accepts an e-stop. Every endpoint has a test.
-* An unauthenticated request to every mutating endpoint is rejected. A valid **device**
-  token is rejected for admin endpoints.
+* **Partly done.** The API enumerates connected robots and reports per-robot state, and
+  every endpoint it has is tested. It deliberately does **not** accept a semantic action or
+  an e-stop yet: actuation from an admin surface is a second path to the hardware, and it
+  needs the authentication story finished first.
+* **Done.** An unauthenticated request to every endpoint except `/health` is rejected, as
+  is a wrong token; an API with no token configured fails closed. The admin credential is
+  separate from the device-token signing key by construction — nothing in `robot/api/`
+  can see or mint one.
 * Two simulated robots run a full session concurrently with **no** cross-talk: separate TTS
   pipelines, separate memory ids, separate world state. Asserted, because R5 says the naive
   path fails exactly here.
 * Killing the robot API task causes a logged escalation and a safe state, not a silently
   degraded server.
-* Robot state survives a server restart; a test writes, restarts the store, and reads back.
+* **Done.** Robot state survives a server restart; `tests/robot/test_memory.py` writes,
+  closes the store, opens a new one over the same file and reads back — including that
+  consolidation does not re-derive what it already folded in.
 
 ---
 

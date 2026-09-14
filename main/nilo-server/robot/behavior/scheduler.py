@@ -262,7 +262,9 @@ class BehaviorScheduler:
     ) -> None:
         self.robot_id = robot_id
         self.robot = robot
-        self.registry = registry or BehaviorRegistry()
+        # Not `registry or BehaviorRegistry()`: an empty registry is falsy (__len__), and a
+        # caller that passes one deserves to keep it rather than to get a fresh one.
+        self.registry = BehaviorRegistry() if registry is None else registry
         self.tuning = tuning or BehaviorTuning()
         self.seed = seed
         self._mode = mode

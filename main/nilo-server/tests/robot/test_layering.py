@@ -35,6 +35,10 @@ ROBOT_MODULES = (
     "robot.events",
     "robot.devices",
     "robot.behavior",
+    "robot.personality",
+    "robot.animation",
+    "robot.vision",
+    "robot.memory",
     "robot.runtime",
     "robot.session",
 )
@@ -82,6 +86,19 @@ FORBIDDEN: dict[str, frozenset[str]] = {
     "safety": frozenset({"actions", "behavior", "personality", "devices", "simulator"}),
     "actions": frozenset({"behavior", "personality", "simulator"}),
     "behavior": frozenset({"devices", "simulator"}),
+    # Animation is driven by behaviour, never the other way round, and it reaches the
+    # action layer only through the player protocol a caller satisfies.
+    "animation": frozenset({"actions", "behavior", "personality", "devices", "safety", "simulator"}),
+    # Personality influences which action is proposed. It cannot see the layer that
+    # decides whether one is allowed.
+    # Vision writes the world model and publishes events. Deciding what to do about a
+    # person, and commanding the robot to do it, is one layer up.
+    "vision": frozenset({"actions", "animation", "behavior", "personality", "devices", "safety", "simulator"}),
+    # Memory stores what happened. It does not decide anything and it does not command.
+    "memory": frozenset({"actions", "animation", "behavior", "devices", "personality", "safety", "simulator"}),
+    "personality": frozenset(
+        {"actions", "animation", "behavior", "devices", "safety", "simulator", "vision", "memory"}
+    ),
     "devices": frozenset({"actions", "behavior", "personality", "safety", "simulator"}),
     "simulator": frozenset({"actions", "behavior", "devices", "events", "personality",
                             "safety", "state"}),
