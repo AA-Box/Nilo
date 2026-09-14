@@ -26,8 +26,10 @@ from core.utils.gc_manager import get_gc_manager
 from core.utils.util import check_ffmpeg_installed, get_local_ip, validate_mcp_endpoint
 from core.websocket_server import WebSocketServer
 from robot import __version__
+from robot.api import API_HOST_ENV, API_PORT_ENV, DEFAULT_API_PORT, run_api, supervise
 from robot.logging import install as install_robot_logging
 from robot.protocol import registry_from_config
+from robot.runtime import get_runtime
 
 TAG = __name__
 logger = setup_logging()
@@ -68,6 +70,29 @@ def resolve_auth_key(config: dict) -> str:
     return auth_key
 
 
+async def start_robot_api():
+    """Start the robot management API on its own port. Returns its runner.
+
+    Loopback and no token by default, which means it fails closed: every route but
+    ``/health`` and ``/api/meta`` refuses until NILO_ROBOT_ADMIN_TOKEN is set, and control
+    endpoints refuse off loopback until NILO_ROBOT_API_ALLOW_REMOTE_CONTROL is too
+    (docs/robot-api.md).
+    """
+    import os
+
+    runtime = get_runtime()
+
+    async def memories(robot_id: str):
+        return await runtime.memory(robot_id)
+
+    return await run_api(
+        runtime,
+        memories,
+        host=os.environ.get(API_HOST_ENV, "127.0.0.1"),
+        port=int(os.environ.get(API_PORT_ENV, DEFAULT_API_PORT)),
+    )
+
+
 async def main():
     check_ffmpeg_installed()
     config = await load_config()
@@ -88,6 +113,11 @@ async def main():
     ws_task = asyncio.create_task(ws_server.start())
     http_server = SimpleHttpServer(config)
     http_task = asyncio.create_task(http_server.start())
+    # The robot management API. Supervised rather than fire-and-forget: this file creates
+    # its tasks and never inspects them, so a port conflict would otherwise degrade the
+    # server silently (docs/robot-architecture.md R5).
+    robot_api_task = asyncio.create_task(start_robot_api())
+    supervise(robot_api_task, lambda error: logger.bind(tag=TAG).error("robot management API failed: {}", error))
 
     read_config_from_api = config.get("read_config_from_api", False)
     http_port = int(config["server"].get("http_port", 8003))
@@ -126,12 +156,15 @@ async def main():
     finally:
         await gc_manager.stop()
 
+        if robot_api_task.done() and not robot_api_task.cancelled() and robot_api_task.exception() is None:
+            await robot_api_task.result().cleanup()
         stdin_task.cancel()
         ws_task.cancel()
         http_task.cancel()
+        robot_api_task.cancel()
 
         await asyncio.wait(
-            [stdin_task, ws_task, http_task],
+            [stdin_task, ws_task, http_task, robot_api_task],
             timeout=3.0,
             return_when=asyncio.ALL_COMPLETED,
         )

@@ -32,6 +32,7 @@ ROBOT_MODULES = (
     "robot",
     "robot.agent",
     "robot.voice",
+    "robot.api",
     "robot.protocol",
     "robot.state",
     "robot.events",
@@ -109,6 +110,10 @@ FORBIDDEN: dict[str, frozenset[str]] = {
     # The voice loop sits beside the agent and drives it. Same rule: it may plan and speak,
     # and it may not see the layer that decides whether an action is allowed.
     "voice": frozenset({"devices", "safety", "simulator", "vision"}),
+    # The management API reads everything and commands through the action layer. It may not
+    # reach the safety policy directly: an admin surface that could relax a limit would be
+    # the second path to the hardware this whole design exists to prevent.
+    "api": frozenset({"devices", "safety", "simulator", "vision"}),
     "simulator": frozenset({"actions", "behavior", "devices", "events", "personality",
                             "safety", "state"}),
 }
