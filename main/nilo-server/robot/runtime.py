@@ -40,6 +40,9 @@ from robot.state.world_model import WorldModel
 
 if TYPE_CHECKING:  # pragma: no cover - imported lazily below to keep the graph acyclic
     from robot.actions.executor import RobotActionExecutor
+    from robot.agent.agent import LLMProvider, RobotAgent
+    from robot.agent.permissions import ToolPolicy
+    from robot.agent.speech import SpeakIntent, Speaker, SpeechArbiter, SpeechDecision
     from robot.animation.engine import AnimationEngine
     from robot.behavior.base import AutonomyMode
     from robot.behavior.engine import BehaviorEngine
@@ -70,6 +73,9 @@ class RobotRuntime:
         discovery_timeout: float = DEFAULT_DISCOVERY_TIMEOUT,
         personality_store: Any = None,
         memory_store: Any = None,
+        llm: LLMProvider | None = None,
+        tool_policy: ToolPolicy | None = None,
+        limits: Any = None,
     ) -> None:
         self._events = events or EventBus()
         self._store = store or InMemoryRobotStateStore()
@@ -79,6 +85,10 @@ class RobotRuntime:
         self._discovery: dict[str, asyncio.Task[None]] = {}
         self._discovery_timeout = discovery_timeout
         self._actions: RobotActionExecutor | None = None
+        # Deployment-supplied safety limits, handed to the executor when it is built.
+        # Kept here rather than read from the server config dict: manager-api mode
+        # replaces that wholesale (robot/safety/limits.py).
+        self._limits = limits
         self._world = WorldModel()
         self._behaviors: dict[str, BehaviorEngine] = {}
         self._personalities: dict[str, PersonalityModel] = {}
@@ -91,6 +101,12 @@ class RobotRuntime:
         self._memories: dict[str, RobotMemory] = {}
         self._memory_store: MemoryStore | None = memory_store
         self._autonomy: AutonomyMode | None = None
+        # The agent seam. A runtime with no provider still builds agents: they answer with
+        # the fallback line, and everything that is not conversation carries on unchanged.
+        self._agents: dict[str, RobotAgent] = {}
+        self._speech: dict[str, SpeechArbiter] = {}
+        self._llm = llm
+        self._tool_policy = tool_policy
         self._closed = False
 
     @property
@@ -125,7 +141,7 @@ class RobotRuntime:
         from robot.actions.executor import RobotActionExecutor
 
         if self._actions is None:
-            self._actions = RobotActionExecutor(self)
+            self._actions = RobotActionExecutor(self, limits=self._limits)
         return self._actions
 
     @property
@@ -271,6 +287,75 @@ class RobotRuntime:
                 engine.start()
         return engine
 
+    # -- the agent seam ----------------------------------------------------------------------
+
+    @property
+    def llm(self) -> LLMProvider | None:
+        """The language-model provider agents are built with, or ``None``."""
+        return self._llm
+
+    def set_llm(self, provider: LLMProvider | None) -> None:
+        """Install the provider, now and for agents that already exist.
+
+        Existing agents are updated rather than discarded: a provider arriving mid-session
+        (or going away) must not cost the robot its conversation.
+        """
+        self._llm = provider
+        for agent in self._agents.values():
+            agent.llm = provider
+
+    async def agent(self, robot_id: str) -> RobotAgent:
+        """The conversational agent for one robot, created on first use.
+
+        Asynchronous because it wires in long-term memory, which opens a database on first
+        use. The agent is built even when this runtime has no model: an agent with no
+        provider answers with a fallback line and the rest of the robot is unaffected
+        (docs/robot-agent.md).
+        """
+        from robot.agent.agent import RobotAgent
+
+        existing = self._agents.get(robot_id)
+        if existing is not None:
+            return existing
+        agent = RobotAgent(
+            robot_id,
+            self,
+            llm=self._llm,
+            policy=self._tool_policy,
+            memory=await self.memory(robot_id),
+            animations=self.animations(robot_id),
+        )
+        self._agents[robot_id] = agent
+        return agent
+
+    def speech(self, robot_id: str, speaker: Speaker | None = None) -> SpeechArbiter:
+        """The speech arbiter for one robot: the single path to the robot talking.
+
+        Created on first use with the speaker it is given. A caller that hands in a
+        speaker after one exists replaces it — which is how a voice session takes over
+        from the default sink when a device connects.
+        """
+        from robot.agent.speech import RecordingSpeaker, SpeechArbiter
+
+        arbiter = self._speech.get(robot_id)
+        if arbiter is None:
+            arbiter = SpeechArbiter(
+                robot_id, speaker or RecordingSpeaker(), events=self._events
+            )
+            self._speech[robot_id] = arbiter
+        elif speaker is not None:
+            arbiter.speaker = speaker
+        return arbiter
+
+    async def request_speech(self, robot_id: str, intent: SpeakIntent) -> SpeechDecision:
+        """Ask the robot to say something. The only entry point anything else may use.
+
+        A behaviour, a safety announcement and a scheduled remark all come through here,
+        which is what makes "two things tried to talk at once" a decision rather than a
+        race (docs/robot-agent.md).
+        """
+        return await self.speech(robot_id).request(intent)
+
     async def get_state(self, robot_id: str) -> RobotState | None:
         """The world-model entry for one robot. What the safety policy is evaluated against."""
         return await self._store.get(robot_id)
@@ -343,6 +428,10 @@ class RobotRuntime:
         animation = self._animations.pop(robot_id, None)
         if animation is not None:
             await animation.aclose()
+        arbiter = self._speech.pop(robot_id, None)
+        if arbiter is not None:
+            await arbiter.aclose()
+        self._agents.pop(robot_id, None)
         personality = self._personalities.pop(robot_id, None)
         if personality is not None:
             # Writes the final snapshot: a robot that reconnects should not have lost its
@@ -424,6 +513,10 @@ class RobotRuntime:
         dispatches, so nothing is still trying to call a channel that is about to close.
         """
         self._closed = True
+        arbiters, self._speech = list(self._speech.values()), {}
+        for arbiter in arbiters:
+            await arbiter.aclose()
+        self._agents.clear()
         engines, self._behaviors = list(self._behaviors.values()), {}
         for engine in engines:
             await engine.aclose()

@@ -9,8 +9,9 @@ safety layers ([robot-domain.md](robot-domain.md), [robot-simulator.md](robot-si
 [robot-actions.md](robot-actions.md)), and so have the world model and the behaviour engine
 ([robot-behavior.md](robot-behavior.md)), and personality, emotion and expressive animation
 ([robot-personality.md](robot-personality.md), [robot-animation.md](robot-animation.md))
-robot vision ([robot-vision.md](robot-vision.md)) and robot memory with its admin API
-([robot-memory.md](robot-memory.md)). The LLM seam is **not implemented**. This page is the plan, and the
+robot vision ([robot-vision.md](robot-vision.md)), robot memory with its admin API
+([robot-memory.md](robot-memory.md)) and the LLM seam ([robot-agent.md](robot-agent.md)).
+This page is the plan, and the
 honest boundary between what runs and what is design: each phase below says which half it is
 in, and a **Delivered** note means the code is in the tree.
 
@@ -302,7 +303,24 @@ layering table is enforced by `tests/robot/test_layering.py`, which parses every
 
 Expose actions to the LLM. This is where the critical design rule becomes real.
 
-**Build:** the tool module inside **plugins/robot_bridge/**.
+**Build:** `robot/agent/`, plus a four-line registration module in
+`main/nilo-server/plugins_func/functions/robot_tools.py`.
+
+**Delivered** (see [robot-agent.md](robot-agent.md)): `robot/agent/` — fourteen semantic
+tools with frozen pydantic argument models (`extra="forbid"`, integers only, bounds taken
+from the live safety limits so the schema and the policy cannot drift), four permission
+classes behind a configurable `ToolPolicy` with one non-negotiable rule (`robot.stop` is
+never refused), a runtime context that carries current state and no telemetry history, a
+`RobotAgent` that wraps the **existing** provider architecture rather than adding a second
+one, interruption that preserves conversational state, a single speech-arbitration path
+for proactive speech (`SpeakIntent`, four priorities, per-reason cooldown, verbatim safety
+lines), and a fallback that leaves every non-conversational subsystem untouched when the
+model is gone. Registration goes through the inherited `IOT_CTL` server-plugin path, and
+`detect_collisions` catches a device tool that would shadow a guarded one. Every test runs
+against a scripted model; there is no external service in CI.
+
+**Still open:** the end-to-end voice path (Phase 9 of the implementation plan) and the
+per-turn latency budget under a real provider.
 
 **Key constraints** (robot-architecture §4.1 seam ③, §3.3, R8, R9; see also [mcp.md](mcp.md)):
 

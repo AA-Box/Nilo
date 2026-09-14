@@ -3,6 +3,9 @@
 from robot.events.bus import DEFAULT_QUEUE_SIZE, EventBus, EventHandler, Subscription
 from robot.events.types import (
     ActionFinished,
+    AgentTurnCompleted,
+    AgentTurnFailed,
+    AgentTurnStarted,
     ActionStarted,
     ActionSubmitted,
     BatteryUpdated,
@@ -15,9 +18,12 @@ from robot.events.types import (
     RobotDisconnected,
     RobotEvent,
     SensorUpdated,
+    SpeechInterrupted,
+    SpeechRequested,
     TelemetryUpdated,
     ToolCallCompleted,
     ToolCallFailed,
+    ToolCallRefused,
     ToolCallStarted,
     ToolDiscovered,
 )
@@ -25,6 +31,9 @@ from robot.events.types import (
 __all__ = [
     "DEFAULT_QUEUE_SIZE",
     "ActionFinished",
+    "AgentTurnCompleted",
+    "AgentTurnFailed",
+    "AgentTurnStarted",
     "ActionStarted",
     "ActionSubmitted",
     "BatteryUpdated",
@@ -39,10 +48,13 @@ __all__ = [
     "RobotDisconnected",
     "RobotEvent",
     "SensorUpdated",
+    "SpeechInterrupted",
+    "SpeechRequested",
     "Subscription",
     "TelemetryUpdated",
     "ToolCallCompleted",
     "ToolCallFailed",
+    "ToolCallRefused",
     "ToolCallStarted",
     "ToolDiscovered",
 ]

@@ -320,8 +320,76 @@ class EmergencyStopChanged(RobotEvent):
     engaged_by: str = "system"
 
 
+# -- the agent ---------------------------------------------------------------------------------
+#
+# What the model was asked, what it answered, and what it was not allowed to do. The
+# conversation is observable from the outside for the same reason actions are: an
+# operator asking "why did the robot drive off?" needs the turn that caused it, not a log
+# line. Utterances and replies are carried because they are the event; a deployment that
+# must not keep them turns the subscriber off rather than the events.
+
+
+class AgentTurnStarted(RobotEvent):
+    """A turn began: somebody spoke, or a behaviour asked the robot to say something."""
+
+    turn_id: str
+    origin: str = "user"
+    person_id: str | None = None
+    utterance: str = ""
+
+
+class AgentTurnCompleted(RobotEvent):
+    """A turn settled. ``fallback`` names why the model was not used, when it was not."""
+
+    turn_id: str
+    text: str = ""
+    tool_calls: tuple[str, ...] = ()
+    refusals: tuple[str, ...] = ()
+    fallback: str = ""
+
+
+class AgentTurnFailed(RobotEvent):
+    turn_id: str
+    error: str
+
+
+class ToolCallRefused(RobotEvent):
+    """A tool the model asked for was not run, and what refused it.
+
+    ``refused_by`` is ``permission_policy``, ``argument_validation``, ``timeout``, or
+    ``safety:<typed reason>`` — enough to tell a policy problem from a hazard without
+    reading the message.
+    """
+
+    turn_id: str = ""
+    tool_name: str
+    refused_by: str = ""
+    reason: str = ""
+
+
+class SpeechRequested(RobotEvent):
+    """Something asked the robot to speak, and what the arbiter did about it."""
+
+    intent_id: str
+    reason: str
+    priority: int = 0
+    accepted: bool = True
+    rejected_because: str = ""
+    interrupted: str | None = None
+
+
+class SpeechInterrupted(RobotEvent):
+    """Speech stopped before it finished. The barge-in event."""
+
+    intent_id: str = ""
+    reason: str = "interrupted"
+
+
 __all__ = [
     "ActionFinished",
+    "AgentTurnCompleted",
+    "AgentTurnFailed",
+    "AgentTurnStarted",
     "AnimationCancelled",
     "AnimationFinished",
     "AnimationStarted",
@@ -342,9 +410,12 @@ __all__ = [
     "RobotDisconnected",
     "RobotEvent",
     "SensorUpdated",
+    "SpeechInterrupted",
+    "SpeechRequested",
     "TelemetryUpdated",
     "ToolCallCompleted",
     "ToolCallFailed",
+    "ToolCallRefused",
     "ToolCallStarted",
     "ToolDiscovered",
     "FaceDetected",

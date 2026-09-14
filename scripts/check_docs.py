@@ -47,7 +47,6 @@ ENV_VARS = {
 # once one does, delete it here so the normal "this path exists" rule takes over.
 PLANNED_PATHS = {
     "robot/.ruff.toml",
-    "robot/agent",
 }
 
 # Files allowed to contain "xiaozhi". The legacy protocol was removed, so the only legitimate

@@ -9,6 +9,7 @@ source of truth; read them before touching anything:
 * [`docs/robot-actions.md`](../../docs/robot-actions.md) — the action and safety layers, and how to use them
 * [`docs/safety.md`](../../docs/safety.md) — the safety split, and what firmware must implement itself
 * [`docs/robot-simulator.md`](../../docs/robot-simulator.md) — the simulator: run it, extend it, test against it
+* [`docs/robot-agent.md`](../../docs/robot-agent.md) — the LLM seam: tools, permissions, context, speech
 * [`docs/development.md`](../../docs/development.md) — setup, lint, tests, layout
 * [`docs/upstream.md`](../../docs/upstream.md) — which code is inherited and how it is synced
 * [`docs/branding.md`](../../docs/branding.md) — naming rules (no product name in domain code, no Chinese)
@@ -29,7 +30,9 @@ robot/            Nilo-owned code: protocol/ (routes), state/ (models + store + 
                   internal control variables, the per-robot store), animation/ (YAML
                   animations and the engine that plays them), vision/ (the snapshot
                   perception pipeline: providers, tracker, faces, metrics), memory/ (working,
-                  episodic, semantic and person memory over SQLite), api/ (the admin API on
+                  episodic, semantic and person memory over SQLite), agent/ (the LLM seam:
+                  fourteen semantic tools, four permission classes, the runtime context, the
+                  speech arbiter), api/ (the admin API on
                   its own port), telemetry.py (device
                   notifications -> world state), simulator/ (a fake robot on a real socket),
                   runtime.py, session.py
@@ -55,6 +58,13 @@ Rules of thumb:
   overwrite a semantic fact blindly: every write goes through `merge_fact`, and an LLM that is
   less confident than what is stored does not change the answer (`docs/robot-memory.md`).
 * The admin API has no endpoint that moves a robot, and its token is never the device token.
+* The agent owns conversation, interpretation, planning, tool selection and wording — and
+  nothing else. Safety, behaviour scheduling, vision loops and timing have no LLM in them and
+  keep working when the model is gone. Tool arguments are integers with the unit in the name,
+  validated before submission, and every tool goes through the action executor
+  (`docs/robot-agent.md`). One LLM stack: wrap `core/providers/llm/`, never add a second.
+* Everything that makes the robot talk goes through `runtime.request_speech` and the speech
+  arbiter. A background task that calls the model directly is a second mouth.
 * Vision is snapshot-based and every provider is optional: OpenCV and Ultralytics are
   imported lazily and the defaults need nothing installed. Coordinates are normalized 0.0-1.0,
   never pixels, and frames are ephemeral by default (`docs/robot-vision.md`).
@@ -80,5 +90,6 @@ python -m robot.simulator --server ws://127.0.0.1:8000/nilo/v1/ --scenario perso
 python -m robot.simulator --status    # the simulated robot's own state
 python -m robot.behavior explain --situation person_arrives   # why would it do that?
 pytest tests/robot/test_memory.py -q  # memory: persistence, retrieval, consolidation, deletion
+pytest tests/robot/test_agent.py -q   # the LLM seam, against a scripted model
 python ../../scripts/smoke_check.py   # against a running server
 ```

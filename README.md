@@ -71,12 +71,16 @@ than a smart speaker. The direction is described in [docs/robot-architecture.md]
   watchdog on its own thread. A **policy filter, not a guarantee** — firmware owns every guarantee
   ([docs/safety.md](docs/safety.md))
 
-**In development:**
+* Robot agent (`main/nilo-server/robot/agent/`): the LLM seam. Fourteen semantic tools with
+  strict argument validation and live safety bounds in their schemas, four permission classes
+  behind a configurable policy, a runtime context with no telemetry history in it,
+  interruptible conversation, one arbitration path for proactive speech, and a fallback that
+  keeps the robot working when the model is not there. It wraps the existing provider
+  architecture rather than adding a second one, and every test runs against a scripted model
+  ([docs/robot-agent.md](docs/robot-agent.md))
 
-* The LLM seam: `robot_*` tools that expose the semantic vocabulary to the model
-
-**Planned:** behaviour engine, personality and emotion model, world model, on-device vision
-pipeline, robot memory, management API, physical robot firmware. See
+**Planned:** the complete voice/interaction loop, the management API and development
+dashboard, and the physical robot firmware. See
 [docs/robot-roadmap.md](docs/robot-roadmap.md).
 
 ## Architecture

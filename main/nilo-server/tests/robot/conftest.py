@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import time
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -429,3 +430,179 @@ def make_scheduler(
         clock=fake_clock,
     )
     return scheduler, handle, fake_clock
+
+
+# -- the agent ------------------------------------------------------------------------------------
+#
+# Two fakes and a fixture. The LLM is a script, the device is a dictionary, and the runtime
+# is the real one — so an agent test exercises the real executor, the real safety policy
+# and the real event bus without a socket, a model or a robot.
+
+import contextlib  # noqa: E402
+
+from robot.devices.mcp import sanitize_tool_name as _sanitize  # noqa: E402
+
+
+async def until(predicate: Any, timeout: float = 2.0, interval: float = 0.005) -> bool:
+    """Wait for something the executor does on its own pump. Returns whether it happened.
+
+    The action layer never blocks a caller on hardware, so "the device was called" is a
+    thing that becomes true shortly after ``submit`` returns rather than before it does.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        await asyncio.sleep(interval)
+    return predicate()
+
+
+def tool_call(name: str, call_id: str = "", **arguments: Any) -> dict[str, Any]:
+    """One scripted tool call, in the shape a provider streams it."""
+    return {
+        "id": call_id or f"call-{name}",
+        "function": {"name": name, "arguments": json.dumps(arguments)},
+    }
+
+
+class ScriptedLLM:
+    """An :class:`~robot.agent.agent.LLMProvider` that reads from a script.
+
+    Each entry in ``turns`` is what one model round trip produces:
+
+        "Okay."                                   text, streamed a character at a time
+        [tool_call("robot_move", distance_mm=250)] one or more tool calls
+        ["I will ", "come closer."]                text in explicit chunks
+
+    A script that runs out repeats its last entry, so a test that does not care how many
+    rounds happen does not have to count them.
+    """
+
+    def __init__(self, *turns: Any, error: BaseException | None = None, delay_s: float = 0.0) -> None:
+        self.turns = list(turns) or ["Okay."]
+        self.error = error
+        self.delay_s = delay_s
+        self.calls = 0
+        self.dialogues: list[list[dict[str, Any]]] = []
+        self.functions: list[list[dict[str, Any]] | None] = []
+
+    @property
+    def system_prompts(self) -> list[str]:
+        return [dialogue[0]["content"] for dialogue in self.dialogues if dialogue]
+
+    @property
+    def offered(self) -> list[str]:
+        """Every tool name offered on the most recent call."""
+        latest = self.functions[-1] if self.functions else None
+        return [item["function"]["name"] for item in latest or []]
+
+    def response_with_functions(
+        self, session_id: str, dialogue: list[dict[str, Any]], functions: Any = None
+    ) -> Any:
+        self.dialogues.append([dict(message) for message in dialogue])
+        self.functions.append(list(functions) if functions else None)
+        index = min(self.calls, len(self.turns) - 1)
+        self.calls += 1
+        turn = self.turns[index]
+        if self.error is not None:
+            raise self.error
+        return self._emit(turn)
+
+    def _emit(self, turn: Any) -> Any:
+        if isinstance(turn, str):
+            # One character at a time, so a test can interrupt part-way through a sentence
+            # the way a person talking over the robot does.
+            turn = list(turn)
+        for piece in turn:
+            if self.delay_s:
+                time.sleep(self.delay_s)
+            if isinstance(piece, str):
+                yield piece, None
+            else:
+                yield "", [piece]
+
+
+class FakeToolChannel:
+    """A device on the other end of a tool channel, without the device or the channel.
+
+    ``replies`` maps a *sanitized* tool name to what the call returns: a string, a dict
+    (JSON-encoded on the way out), an exception instance (raised), or a callable. Anything
+    unscripted is accepted with a fresh device action id, which is what a healthy robot
+    does.
+    """
+
+    def __init__(
+        self,
+        tools: Iterable[str] = ACTION_TOOL_NAMES,
+        *,
+        replies: dict[str, Any] | None = None,
+        latency_s: float = 0.0,
+    ) -> None:
+        self.capabilities = RobotCapabilities(mcp=True, tools=robot_tools(tools))
+        self.replies = replies or {}
+        self.latency_s = latency_s
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self._ids = itertools.count(1)
+
+    async def discover(self) -> RobotCapabilities:
+        return self.capabilities
+
+    async def call_tool(self, name: str, arguments: Any = None, *, timeout: float | None = None) -> str:
+        self.calls.append((name, dict(arguments or {})))
+        if self.latency_s:
+            await asyncio.sleep(self.latency_s)
+        scripted = self.replies.get(name)
+        if callable(scripted) and not isinstance(scripted, BaseException):
+            scripted = scripted(dict(arguments or {}))
+        if isinstance(scripted, BaseException):
+            raise scripted
+        if isinstance(scripted, dict):
+            return json.dumps(scripted)
+        if isinstance(scripted, str):
+            return scripted
+        return json.dumps({"accepted": True, "action_id": f"dev-{next(self._ids)}"})
+
+    async def aclose(self) -> None:
+        return None
+
+    def called(self, device_tool_name: str) -> tuple[dict[str, Any], ...]:
+        sanitized = _sanitize(device_tool_name)
+        return tuple(args for name, args in self.calls if name in (device_tool_name, sanitized))
+
+
+async def attach_fake_robot(
+    runtime: Any,
+    robot_id: str = ROBOT_ID,
+    *,
+    channel: FakeToolChannel | None = None,
+    telemetry: RobotTelemetry | None = None,
+) -> FakeToolChannel:
+    """Register a robot with a fake device behind it and fresh, healthy telemetry."""
+    device = FakeToolChannel() if channel is None else channel
+    await runtime.attach(
+        DeviceInfo(device_id=robot_id, session_id="session-1", features={"mcp": True}),
+        device,
+        discover=False,
+    )
+    await runtime.registry.set_capabilities(robot_id, device.capabilities)
+    await runtime.update_telemetry(
+        robot_id,
+        telemetry
+        or RobotTelemetry(
+            sensors=RobotSensorState(readings={"front_mm": 1500.0}),
+            battery=RobotBatteryState(percent=80),
+        ),
+    )
+    return device
+
+
+@pytest.fixture
+async def agent_runtime():
+    """A real runtime with one fake robot attached. Torn down after every test."""
+    active = RobotRuntime(discovery_timeout=1.0)
+    channel = await attach_fake_robot(active)
+    try:
+        yield active, channel
+    finally:
+        with contextlib.suppress(Exception):
+            await active.aclose()
