@@ -198,6 +198,11 @@ async def detach_connection(
     session = getattr(conn, ROBOT_ATTR, None)
     if not isinstance(session, RobotSession):
         return False
+    # Imported here rather than at module scope: robot/voice imports this module, so the
+    # other direction would be a cycle.
+    from robot.voice.seam import detach as detach_voice
+
+    await detach_voice(conn)
     try:
         active = runtime or get_runtime()
         return await active.detach(session.robot_id, session_id=session.session_id, reason=reason)

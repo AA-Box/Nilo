@@ -385,11 +385,54 @@ class SpeechInterrupted(RobotEvent):
     reason: str = "interrupted"
 
 
+# -- the voice loop ------------------------------------------------------------------------------
+#
+# One answer to "is this robot talking?". The inherited session has several — client
+# flags, the TTS queue's own state, and whatever the device believes — and a barge-in
+# that reads a different one from the one the speaker wrote is a robot that talks over
+# the person who interrupted it.
+
+
+class AudioStateChanged(RobotEvent):
+    """The voice loop moved between IDLE, LISTENING, THINKING, SPEAKING and INTERRUPTED."""
+
+    previous: str = "idle"
+    state: str = "idle"
+    detail: str = ""
+
+
+class UtteranceRecognized(RobotEvent):
+    """Speech recognition produced a final result, and who it was attributed to."""
+
+    text: str
+    person_id: str | None = None
+    speaker: str = ""
+
+
+class SpeechStarted(RobotEvent):
+    """Audio began streaming to the robot's speaker."""
+
+    intent_id: str = ""
+    reason: str = ""
+    priority: int = 0
+    text: str = ""
+
+
+class SpeechFinished(RobotEvent):
+    """Audio stopped. ``interrupted`` says whether it reached the end of the sentence."""
+
+    intent_id: str = ""
+    reason: str = ""
+    text: str = ""
+    interrupted: bool = False
+
+
 __all__ = [
     "ActionFinished",
     "AgentTurnCompleted",
     "AgentTurnFailed",
     "AgentTurnStarted",
+    "AudioStateChanged",
     "AnimationCancelled",
     "AnimationFinished",
     "AnimationStarted",
@@ -410,14 +453,17 @@ __all__ = [
     "RobotDisconnected",
     "RobotEvent",
     "SensorUpdated",
+    "SpeechFinished",
     "SpeechInterrupted",
     "SpeechRequested",
+    "SpeechStarted",
     "TelemetryUpdated",
     "ToolCallCompleted",
     "ToolCallFailed",
     "ToolCallRefused",
     "ToolCallStarted",
     "ToolDiscovered",
+    "UtteranceRecognized",
     "FaceDetected",
     "KnownPersonRecognized",
     "ObjectDetected",

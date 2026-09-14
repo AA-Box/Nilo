@@ -43,6 +43,7 @@ if TYPE_CHECKING:  # pragma: no cover - imported lazily below to keep the graph 
     from robot.agent.agent import LLMProvider, RobotAgent
     from robot.agent.permissions import ToolPolicy
     from robot.agent.speech import SpeakIntent, Speaker, SpeechArbiter, SpeechDecision
+    from robot.voice.loop import VoiceLoop
     from robot.animation.engine import AnimationEngine
     from robot.behavior.base import AutonomyMode
     from robot.behavior.engine import BehaviorEngine
@@ -105,6 +106,10 @@ class RobotRuntime:
         # the fallback line, and everything that is not conversation carries on unchanged.
         self._agents: dict[str, RobotAgent] = {}
         self._speech: dict[str, SpeechArbiter] = {}
+        # The voice loop is built per *session* by robot/voice/seam.py, because it holds a
+        # sink onto one connection. The runtime keeps a weak-ish index of the live ones so
+        # the management API can report what a robot is doing with its ears and its mouth.
+        self._voice: dict[str, VoiceLoop] = {}
         self._llm = llm
         self._tool_policy = tool_policy
         self._closed = False
@@ -356,6 +361,17 @@ class RobotRuntime:
         """
         return await self.speech(robot_id).request(intent)
 
+    def voice(self, robot_id: str) -> VoiceLoop | None:
+        """The voice loop driving this robot's session, if one is."""
+        return self._voice.get(robot_id)
+
+    def register_voice(self, robot_id: str, loop: VoiceLoop | None) -> None:
+        """Record (or clear, with ``None``) the voice loop for one robot."""
+        if loop is None:
+            self._voice.pop(robot_id, None)
+        else:
+            self._voice[robot_id] = loop
+
     async def get_state(self, robot_id: str) -> RobotState | None:
         """The world-model entry for one robot. What the safety policy is evaluated against."""
         return await self._store.get(robot_id)
@@ -428,6 +444,7 @@ class RobotRuntime:
         animation = self._animations.pop(robot_id, None)
         if animation is not None:
             await animation.aclose()
+        self._voice.pop(robot_id, None)
         arbiter = self._speech.pop(robot_id, None)
         if arbiter is not None:
             await arbiter.aclose()
@@ -513,6 +530,7 @@ class RobotRuntime:
         dispatches, so nothing is still trying to call a channel that is about to close.
         """
         self._closed = True
+        self._voice.clear()
         arbiters, self._speech = list(self._speech.values()), {}
         for arbiter in arbiters:
             await arbiter.aclose()

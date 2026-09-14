@@ -525,8 +525,12 @@ class RobotToolkit:
             if emotion not in EXPRESSIONS:
                 raise ToolError(f"unknown expression {emotion!r}; choose one of {', '.join(EXPRESSIONS)}")
 
-    def _handle(self) -> Any:
-        """The semantic handle for this robot, attributed to the LLM."""
+    def handle(self) -> Any:
+        """The semantic handle for this robot, attributed to the LLM.
+
+        Public because the voice loop drives the face through it: the face is a semantic
+        action like any other, and a second path to it would be a second path to a device.
+        """
         return self.runtime.actions.robot(self.robot_id).as_source(self.source)
 
 
@@ -567,22 +571,22 @@ def _record_result(record: ActionRecord | None, tool: str, **extra: Any) -> Tool
 
 
 async def _move(kit: RobotToolkit, args: Any, person_id: str | None) -> ToolOutcome:
-    record = await kit._handle().move(args.distance_mm, args.speed_mmps, wait=False)
+    record = await kit.handle().move(args.distance_mm, args.speed_mmps, wait=False)
     return _record_result(record, "robot_move", distance_mm=args.distance_mm)
 
 
 async def _turn(kit: RobotToolkit, args: Any, person_id: str | None) -> ToolOutcome:
-    record = await kit._handle().turn(args.angle_deg, args.speed_dps, wait=False)
+    record = await kit.handle().turn(args.angle_deg, args.speed_dps, wait=False)
     return _record_result(record, "robot_turn", angle_deg=args.angle_deg)
 
 
 async def _stop(kit: RobotToolkit, args: Any, person_id: str | None) -> ToolOutcome:
-    record = await kit._handle().stop(args.reason, wait=False)
+    record = await kit.handle().stop(args.reason, wait=False)
     return _record_result(record, "robot_stop")
 
 
 async def _look_at(kit: RobotToolkit, args: Any, person_id: str | None) -> ToolOutcome:
-    record = await kit._handle().look_at(args.x_pct, args.y_pct, wait=False)
+    record = await kit.handle().look_at(args.x_pct, args.y_pct, wait=False)
     return _record_result(record, "robot_look_at")
 
 
@@ -593,7 +597,7 @@ async def _follow_person(kit: RobotToolkit, args: Any, person_id: str | None) ->
         if resolved is None:
             return ToolOutcome.failure("robot_follow_person", "the robot cannot see anybody to follow")
         target = resolved
-    record = await kit._handle().follow(
+    record = await kit.handle().follow(
         target, duration_ms=args.duration_ms, stop_distance_mm=args.stop_distance_mm, wait=False
     )
     return _record_result(record, "robot_follow_person", person_id=target)
@@ -622,22 +626,22 @@ async def _play_animation(kit: RobotToolkit, args: Any, person_id: str | None) -
                 refused_by="animation_engine",
             )
         return ToolOutcome.success("robot_play_animation", animation=args.name)
-    record = await kit._handle().play_animation(args.name, wait=False)
+    record = await kit.handle().play_animation(args.name, wait=False)
     return _record_result(record, "robot_play_animation", animation=args.name)
 
 
 async def _set_expression(kit: RobotToolkit, args: Any, person_id: str | None) -> ToolOutcome:
-    record = await kit._handle().set_expression(args.emotion, args.intensity_pct, wait=False)
+    record = await kit.handle().set_expression(args.emotion, args.intensity_pct, wait=False)
     return _record_result(record, "robot_set_expression", emotion=args.emotion)
 
 
 async def _capture_image(kit: RobotToolkit, args: Any, person_id: str | None) -> ToolOutcome:
-    record = await kit._handle().capture_image(None, wait=True)
+    record = await kit.handle().capture_image(None, wait=True)
     return _record_result(record, "robot_capture_image", seen=_seen(record))
 
 
 async def _inspect_object(kit: RobotToolkit, args: Any, person_id: str | None) -> ToolOutcome:
-    record = await kit._handle().capture_image(args.question, wait=True)
+    record = await kit.handle().capture_image(args.question, wait=True)
     return _record_result(record, "robot_inspect_object", answer=_seen(record))
 
 

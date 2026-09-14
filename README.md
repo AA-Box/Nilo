@@ -63,9 +63,14 @@ than a smart speaker. The direction is described in [docs/robot-architecture.md]
   embeddings (the robot works without them), token-budgeted retrieval that explains every item it
   returns, consolidation that tracks provenance and never lets a model overwrite a fact it is less
   sure about, and real delete operations ([docs/robot-memory.md](docs/robot-memory.md))
-* Robot admin API (`main/nilo-server/robot/api/`): its own aiohttp app, its own port, its own token —
-  inspect memory, see what would go into a prompt, delete a person, and ask why the robot is doing
-  what it is doing. No endpoint moves a robot
+* Robot management API and development dashboard (`main/nilo-server/robot/api/`): its own aiohttp
+  app, its own port, its own token. Inspect state, world, behaviour scores, memory, tools and the
+  conversation; drive the robot; stream everything as server-sent events; and a single-file
+  dashboard with a simulator panel that injects people, obstacles, cliffs, touch and low battery
+  through the same doors real perception uses. Control endpoints are gated three ways — a token,
+  a loopback rule and a rate limit — and every one of them submits a typed action to the same
+  executor and the same safety policy as a behaviour's own command
+  ([docs/robot-api.md](docs/robot-api.md))
 * Robot safety policy (`main/nilo-server/robot/safety/`): deterministic admission against configurable limits and
   live sensor state, typed rejections (never silent clamping), a sticky emergency-stop latch, and a supervisory
   watchdog on its own thread. A **policy filter, not a guarantee** — firmware owns every guarantee
@@ -79,8 +84,14 @@ than a smart speaker. The direction is described in [docs/robot-architecture.md]
   architecture rather than adding a second one, and every test runs against a scripted model
   ([docs/robot-agent.md](docs/robot-agent.md))
 
-**Planned:** the complete voice/interaction loop, the management API and development
-dashboard, and the physical robot firmware. See
+* Robot voice loop (`main/nilo-server/robot/voice/`): microphone to speaker with a robot in
+  the middle. Five audio states with checked transitions and an event per change, barge-in that
+  keeps the conversation, one arbitrated mouth with four speech priorities, and a face that
+  follows the conversation without twitching on every transition. The inherited VAD, ASR, TTS
+  and Opus pipeline is reused unchanged; the seam is two calls, both of which never raise
+  ([docs/robot-voice.md](docs/robot-voice.md))
+
+**Planned:** the physical robot firmware. See
 [docs/robot-roadmap.md](docs/robot-roadmap.md).
 
 ## Architecture
