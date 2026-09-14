@@ -353,9 +353,18 @@ steps:
     args: {camera_failure: true}
 ```
 
-`at_s` is simulated seconds from the start of the run; steps run in time order, once each,
-driven from the same tick loop as the physics, which is why an accelerated or manual clock
-works. An unknown or failing step is logged and skipped, never fatal.
+`at_s` is simulated seconds **from the moment the server finishes discovering the robot**,
+not from the start of the process. A scripted step on an accelerated clock would otherwise
+land inside the WebSocket handshake — on an eight-times clock, `at_s: 2` arrives a quarter
+of a second in — and fire into a socket nobody is listening on, which makes a run depend on
+how busy the host is. A reconnect does not restart the timeline: a scenario is a story, not
+a loop. A simulator with no server (a test driving `step()` by hand) runs its timeline from
+zero, exactly as simulated time does, and `status()["scenario"]["started"]` says which of
+the two a run is in.
+
+Steps run in time order, once each, driven from the same tick loop as the physics, which is
+why an accelerated or manual clock works. An unknown or failing step is logged and skipped,
+never fatal.
 
 Steps, and the arguments they take (distances in millimetres, angles in degrees):
 

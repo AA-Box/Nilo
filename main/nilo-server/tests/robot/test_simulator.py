@@ -97,6 +97,74 @@ def test_build_clock_picks_the_requested_kind() -> None:
     assert isinstance(build_clock(manual=True), ManualClock)
 
 
+# -- the scenario timeline -------------------------------------------------------------------
+#
+# The timeline is the one thing in the simulator that used to depend on how fast the host
+# was: a scripted step at t=2 s on an eight-times clock lands a quarter of a second into
+# the run, which on a loaded CI machine is still inside the WebSocket handshake. The step
+# fired into a socket nobody was listening on, its effects were never reported, and the
+# test waiting for them waited until it gave up. These tests pin the fix.
+
+
+async def test_a_scenario_waits_for_the_server_to_discover_the_robot() -> None:
+    robot = offline(
+        Scenario(
+            name="scripted",
+            duration_s=0.0,
+            steps=[Step(at_s=1.0, do="spawn_person", args={"id": "person-1"})],
+        )
+    )
+    robot._expects_server = True  # what run() sets: there is a server to wait for
+
+    await drive(robot, 3.0)
+    assert robot.world.people == {}, "a step fired before the server knew the robot existed"
+    assert robot.status()["scenario"]["started"] is False
+
+    robot._discovered.set()
+    await drive(robot, 0.2)  # the timeline starts here, at t=3.2s
+    assert robot.world.people == {}, "the timeline restarted from zero, not from discovery"
+
+    await drive(robot, 1.0)
+    assert "person-1" in robot.world.people
+    assert robot.status()["scenario"]["started"] is True
+
+
+async def test_a_scenario_offline_runs_from_zero_exactly_as_before() -> None:
+    """An offline simulator — a test driving step() by hand — has no server to wait for."""
+    robot = offline(
+        Scenario(
+            name="scripted",
+            duration_s=0.0,
+            steps=[Step(at_s=1.0, do="spawn_person", args={"id": "person-1"})],
+        )
+    )
+    await drive(robot, 0.5)
+    assert robot.world.people == {}
+    await drive(robot, 0.7)
+    assert "person-1" in robot.world.people
+
+
+async def test_the_timeline_does_not_restart_when_the_robot_reconnects() -> None:
+    """A scenario is a story, not a loop: a dropped session does not replay it."""
+    robot = offline(
+        Scenario(
+            name="scripted",
+            duration_s=0.0,
+            steps=[Step(at_s=1.0, do="spawn_person", args={"id": "person-1"})],
+        )
+    )
+    robot._expects_server = True
+    robot._discovered.set()
+    await drive(robot, 1.5)
+    assert "person-1" in robot.world.people
+
+    robot.world.remove_person("person-1")
+    robot._discovered.clear()   # the session dropped
+    robot._discovered.set()     # and came back
+    await drive(robot, 2.0)
+    assert robot.world.people == {}, "the scenario replayed after a reconnect"
+
+
 # -- the world -------------------------------------------------------------------------------
 
 
