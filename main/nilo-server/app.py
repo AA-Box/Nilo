@@ -27,6 +27,7 @@ from core.utils.util import check_ffmpeg_installed, get_local_ip, validate_mcp_e
 from core.websocket_server import WebSocketServer
 from robot import __version__
 from robot.api import API_HOST_ENV, API_PORT_ENV, DEFAULT_API_PORT, run_api, supervise
+from robot.bootstrap import start_robot_subsystem
 from robot.logging import install as install_robot_logging
 from robot.protocol import registry_from_config
 from robot.runtime import get_runtime
@@ -102,6 +103,11 @@ async def main():
     install_robot_logging(config["log"].get("log_level", "INFO"))
 
     logger.bind(tag=TAG).info("nilo-server {} starting", __version__)
+
+    # The robot subsystem's composition root. Before the WebSocket server, so the first
+    # device to connect finds a configured runtime rather than a default one
+    # (docs/configuration.md).
+    await start_robot_subsystem()
 
     stdin_task = asyncio.create_task(monitor_stdin())
 

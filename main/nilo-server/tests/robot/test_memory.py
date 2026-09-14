@@ -596,3 +596,55 @@ async def test_a_trivial_memory_loses_to_an_important_one(memory):
     await memory.remember("important", importance=IMPORTANCE_CRITICAL, timestamp=at(-60))
     ranked = [item.text for item in await memory.recall("")]
     assert ranked.index("observation: important") < ranked.index("observation: trivial")
+
+
+# -- concurrency and atomicity ----------------------------------------------------------------------
+
+
+async def test_concurrent_writers_all_land(store) -> None:
+    """One connection is shared across ``to_thread`` workers; the lock is what serializes it."""
+    import asyncio
+
+    await asyncio.gather(*(store.add_episode(episode(f"thing {index}")) for index in range(40)))
+    counts = await store.counts(ROBOT_ID)
+    assert counts["episodes"] == 40
+
+
+async def test_concurrent_reads_and_writes_do_not_interfere(store) -> None:
+    import asyncio
+
+    async def write(index: int) -> None:
+        await store.add_episode(episode(f"written {index}"))
+
+    async def read() -> None:
+        await store.recent_episodes(ROBOT_ID, limit=5)
+
+    await asyncio.gather(*(write(index) for index in range(20)), *(read() for _ in range(20)))
+    assert (await store.counts(ROBOT_ID))["episodes"] == 20
+
+
+async def test_forgetting_a_person_is_one_transaction(store) -> None:
+    """All three deletions or none: a half-forgotten person is the worst of both answers."""
+    await store.upsert_person(PersonRecord(robot_id=ROBOT_ID, person_id="ahmad"))
+    await store.add_episode(episode("said hello", person_id="ahmad"))
+    await store.upsert_fact(
+        SemanticFact(robot_id=ROBOT_ID, subject="ahmad", predicate="likes", value="tea")
+    )
+
+    removed = await store.delete_person(ROBOT_ID, "ahmad")
+    assert removed == 3
+    counts = await store.counts(ROBOT_ID)
+    assert counts["people"] == 0 and counts["episodes"] == 0 and counts["facts"] == 0
+
+
+async def test_a_failing_statement_rolls_the_whole_transaction_back(store) -> None:
+    """The property `delete_person` and `clear_robot` depend on, asserted directly."""
+    import sqlite3
+
+    await store.add_episode(episode("keep me"))
+    with pytest.raises(sqlite3.Error):
+        await store._transaction(
+            ("DELETE FROM episodes WHERE robot_id = ?", (ROBOT_ID,)),
+            ("DELETE FROM no_such_table WHERE robot_id = ?", (ROBOT_ID,)),
+        )
+    assert (await store.counts(ROBOT_ID))["episodes"] == 1, "the first statement was not rolled back"

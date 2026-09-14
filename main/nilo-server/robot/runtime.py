@@ -81,6 +81,7 @@ class RobotRuntime:
         limits: Any = None,
         metrics: MetricRegistry | None = None,
         observe: bool = True,
+        settings: Any = None,
     ) -> None:
         self._events = events or EventBus()
         self._store = store or InMemoryRobotStateStore()
@@ -119,6 +120,11 @@ class RobotRuntime:
         # Observability is one subscriber on the same bus, attached when the first device
         # does (subscribing needs a running loop). A runtime built with `observe=False`
         # records nothing, which is what a unit test that counts subscriptions wants.
+        # What this runtime was configured from, when it was built by the composition root
+        # (``robot/bootstrap.py``). ``None`` for a runtime a test built directly. Kept so
+        # the management API can report the configuration a deployment is actually running,
+        # which is the question an incident starts with.
+        self._settings = settings
         self._metrics = metrics if metrics is not None else MetricRegistry()
         self._observer = RobotObserver(self._metrics) if observe else None
         self._closed = False
@@ -130,6 +136,11 @@ class RobotRuntime:
     @property
     def events(self) -> EventBus:
         return self._events
+
+    @property
+    def settings(self) -> Any:
+        """The :class:`~robot.config.RobotConfig` this runtime was built from, or ``None``."""
+        return self._settings
 
     @property
     def metrics(self) -> MetricRegistry:

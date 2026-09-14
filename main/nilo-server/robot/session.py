@@ -29,6 +29,7 @@ from typing import Any
 
 from robot.devices.mcp import (
     DEFAULT_CALL_TIMEOUT,
+    MAX_TOOLS,
     MalformedToolError,
     McpTimeoutError,
     McpUnsupportedError,
@@ -84,7 +85,16 @@ class ConnectionToolChannel:
         client = await self._wait_until_ready()
         tools = []
         malformed = 0
-        for definition in list(getattr(client, "tools", {}).values()):
+        published = list(getattr(client, "tools", {}).values())
+        if len(published) > MAX_TOOLS:
+            # The inherited client accumulates every page of `tools/list` with no ceiling.
+            # One is applied here, at the robot subsystem's edge, for the reason in
+            # `robot/devices/mcp.py`: a tool name is a metric label and a line in a prompt.
+            logger.warning(
+                "device published %d tools; keeping the first %d", len(published), MAX_TOOLS
+            )
+            published = published[:MAX_TOOLS]
+        for definition in published:
             try:
                 tools.append(tool_from_mcp(definition))
             except (MalformedToolError, ValueError) as exc:

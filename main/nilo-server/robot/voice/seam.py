@@ -136,9 +136,16 @@ async def voice_loop(conn: Any, runtime: Any = None) -> VoiceLoop | None:
     robot_id = str(getattr(session, "robot_id", ""))
     agent = await active.agent(robot_id)
     if agent.llm is None:
-        # No provider: the inherited chat path still has its own, and a fallback line is a
-        # worse answer than the one the session was already going to give.
-        logger.info("robot %s: no LLM provider on the runtime; leaving the inherited chat path", robot_id)
+        # Take the provider this session already has. The inherited handler built (or was
+        # handed) one for every connection, and it is the model this device would have
+        # been answered by anyway — including the private one a device with its own
+        # configuration gets. Without this the runtime's provider is never set by anything
+        # in the server, and the whole voice loop is unreachable in production.
+        agent.llm = getattr(conn, "llm", None)
+    if agent.llm is None:
+        # Still nothing: the inherited chat path has no provider either, and a fallback
+        # line is a worse answer than the one the session was already going to give.
+        logger.info("robot %s: no LLM provider on this session; leaving the inherited chat path", robot_id)
         return None
     built = VoiceLoop(
         robot_id,

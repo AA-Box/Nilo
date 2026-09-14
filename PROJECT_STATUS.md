@@ -11,7 +11,10 @@ make lint && make typecheck && make check-docs && make test
 cd main/nilo-server && pytest tests/e2e -q && open tmp/e2e-report.md
 ```
 
-Suite sizes today: **1118** unit tests (`tests/robot/`), **35** integration tests against a
+Findings from the engineering review that produced the second half of this list, and the
+risks that outlived it, are in [`docs/engineering-review.md`](docs/engineering-review.md).
+
+Suite sizes today: **1152** unit tests (`tests/robot/`), **35** integration tests against a
 real server and socket (`tests/integration/`), **30** end-to-end tests
 (`tests/e2e/`), plus the inherited server's own (`tests/core/`, `tests/config/`,
 `tests/plugins/`). No test needs a network, a model download or a cloud account.
@@ -100,6 +103,14 @@ Each row has a test that fails if the claim stops being true.
 | A closed runtime reports not-ready | `test_a_closed_runtime_is_not_ready` |
 | Closing the runtime leaves no tasks, threads or subscriptions | `tests/e2e/test_robustness.py::test_closing_the_runtime_leaves_nothing_running` |
 | The simulator: a full device on a real socket, with injectable faults | `tests/robot/test_simulator.py`, `tests/integration/` |
+| One configuration hierarchy: defaults → file → legacy files → environment → secret file | `tests/robot/test_config.py` |
+| One composition root builds the runtime from it, and `app.py` calls it | `tests/robot/test_config.py` |
+| The admin token can be a mounted secret, and no token still fails closed | `tests/robot/test_config.py` |
+| Every hook into inherited code is documented, and a new one fails CI | `tests/robot/test_upstream_seam.py` |
+| `docker compose up` needs no model, no key and no database service | `tests/test_compose.py` |
+| One SQLite connection, serialized; a deletion is one transaction | `tests/robot/test_memory.py` |
+| A device cannot publish unbounded tools | `tests/robot/test_session.py` |
+| The API's rate limiter does not remember every client for ever | `tests/robot/test_api_control.py` |
 
 ---
 
@@ -115,7 +126,9 @@ Real code, real tests, and a named limit. None of these is a stub.
 | **ASR latency metric** | Recorded and histogrammed for sessions that run the inherited recognizer | A device that does its own recognition reports no latency; `0` means "not measured" |
 | **TTS metrics** | Stream duration and time-to-first-audio, both from real events | Neither measures the vocoder. Synthesis time is inside the inherited provider, which does not report it |
 | **Memory consolidation** | Episodic → semantic consolidation runs, merges rather than overwrites, and is tested | It has never run against months of data. The retention story is a policy nobody has written |
-| **Personality persistence** | Snapshots written on detach and restored on reconnect | Opt-in; a runtime with no store keeps personality in memory and loses it on restart |
+| **Personality persistence** | Snapshots written on detach and restored on reconnect, when `personality.store_dir` is set | Opt-in, and off by default. A runtime with no store keeps personality in memory and loses it on restart |
+| **Long-term memory in a running server** | The stores, the retrieval, the admin API and the agent tools all work, and the composition root opens a database when `memory.enabled` is true | Off by default, so a first run has working memory only. Until this review nothing opened one at all |
+| **The container images** | Both Compose files are validated in CI, and `Dockerfile-server-base` is built by the image workflow | Nothing builds or runs the *development* Compose file end to end — no CI job does `docker compose up`, and it has not been run on a machine with a working daemon since it was written |
 | **Multi-robot** | Two robots in one process are two registries, two engines, two personalities, and a test proves it | Nothing has run more than a handful at once. There is no back-pressure story for fifty |
 
 ---

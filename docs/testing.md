@@ -20,7 +20,7 @@ stated otherwise.
 ```bash
 cd main/nilo-server
 pip install -r requirements-dev.txt     # tooling + the small runtime slice the tests import
-pytest -q                               # 1244 passed, 11 skipped on this slice
+pytest -q                               # 1283 passed, 11 skipped on this slice
 ```
 
 | Command | Where | What it does |
@@ -127,8 +127,8 @@ on config, protocol or utility code never has to install `torch`, `funasr` or `m
 
 | Slice | Install | Result |
 |---|---|---|
-| Dev only | `pip install -r requirements-dev.txt` | 1244 passed + 11 skipped — the tests needing the full runtime skip themselves |
-| Full | `pip install -r requirements.txt -r requirements-dev.txt` | 1389 passed |
+| Dev only | `pip install -r requirements-dev.txt` | 1283 passed + 11 skipped — the tests needing the full runtime skip themselves |
+| Full | `pip install -r requirements.txt -r requirements-dev.txt` | 1429 passed |
 
 `requirements-dev.txt` pins the tooling (`pytest`, `pytest-asyncio`, `freezegun`, `ruff`, `mypy`,
 and `types-PyYAML` because `mypy` is strict over `robot/` and the scenario loader reads YAML)

@@ -40,6 +40,15 @@ DEFAULT_REQUEST_TIMEOUT = 5.0
 DEFAULT_CALL_TIMEOUT = 5.0
 #: Hard stop for a device that keeps handing back a ``nextCursor``.
 MAX_TOOL_PAGES = 64
+#: Hard stop on how many tools one device may publish.
+#:
+#: The robot vocabulary is sixteen tools. A device offering hundreds is a device with a
+#: bug or a device that is not what it says it is, and either way the cost is not just
+#: memory: every tool name becomes a metric label and a line in the model's function list,
+#: so an unbounded tool list is unbounded cardinality in the scrape and an unbounded
+#: prompt. Extra tools are dropped with a warning rather than refused, because a device
+#: that publishes one tool too many should still be a usable robot.
+MAX_TOOLS = 128
 #: MCP revision the inherited handshake speaks; kept identical so firmware sees no skew.
 MCP_PROTOCOL_VERSION = "2024-11-05"
 
@@ -250,6 +259,13 @@ class RobotToolClient:
                 if tool.name in seen:
                     logger.warning("robot %s: duplicate tool %r, keeping the first", self._robot_id, tool.name)
                     continue
+                if len(tools) >= MAX_TOOLS:
+                    logger.warning(
+                        "robot %s: more than %d tools published; ignoring the rest",
+                        self._robot_id,
+                        MAX_TOOLS,
+                    )
+                    return tuple(tools), malformed
                 seen.add(tool.name)
                 tools.append(tool)
             next_cursor = result.get("nextCursor")

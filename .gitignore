@@ -201,3 +201,6 @@ sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01.tar.bz2
 
 # nilo-server runtime state (user config, memories, firmware uploads)
 main/nilo-server/data/
+
+# Local development secrets mounted by docker-compose.yml. Never committed.
+/secrets/
