@@ -10,6 +10,7 @@ source of truth; read them before touching anything:
 * [`docs/safety.md`](../../docs/safety.md) — the safety split, and what firmware must implement itself
 * [`docs/robot-simulator.md`](../../docs/robot-simulator.md) — the simulator: run it, extend it, test against it
 * [`docs/robot-agent.md`](../../docs/robot-agent.md) — the LLM seam: tools, permissions, context, speech
+* [`docs/robot-voice.md`](../../docs/robot-voice.md) — the voice loop: audio state, barge-in, expression
 * [`docs/development.md`](../../docs/development.md) — setup, lint, tests, layout
 * [`docs/upstream.md`](../../docs/upstream.md) — which code is inherited and how it is synced
 * [`docs/branding.md`](../../docs/branding.md) — naming rules (no product name in domain code, no Chinese)
@@ -32,7 +33,9 @@ robot/            Nilo-owned code: protocol/ (routes), state/ (models + store + 
                   perception pipeline: providers, tracker, faces, metrics), memory/ (working,
                   episodic, semantic and person memory over SQLite), agent/ (the LLM seam:
                   fourteen semantic tools, four permission classes, the runtime context, the
-                  speech arbiter), api/ (the admin API on
+                  speech arbiter), voice/ (the complete loop: audio state, barge-in,
+                  expression coordination, and the seam into the inherited session),
+                  api/ (the admin API on
                   its own port), telemetry.py (device
                   notifications -> world state), simulator/ (a fake robot on a real socket),
                   runtime.py, session.py
@@ -65,6 +68,10 @@ Rules of thumb:
   (`docs/robot-agent.md`). One LLM stack: wrap `core/providers/llm/`, never add a second.
 * Everything that makes the robot talk goes through `runtime.request_speech` and the speech
   arbiter. A background task that calls the model directly is a second mouth.
+* The voice loop reuses the inherited VAD/ASR/TTS/Opus pipeline; it never reimplements one.
+  Audio state is the single answer to "is this robot talking?", `SPEAKING -> LISTENING` is not
+  a legal transition (a cut-off reply goes through `INTERRUPTED`), and the face changes as
+  little as it can get away with (`docs/robot-voice.md`).
 * Vision is snapshot-based and every provider is optional: OpenCV and Ultralytics are
   imported lazily and the defaults need nothing installed. Coordinates are normalized 0.0-1.0,
   never pixels, and frames are ephemeral by default (`docs/robot-vision.md`).
@@ -91,5 +98,6 @@ python -m robot.simulator --status    # the simulated robot's own state
 python -m robot.behavior explain --situation person_arrives   # why would it do that?
 pytest tests/robot/test_memory.py -q  # memory: persistence, retrieval, consolidation, deletion
 pytest tests/robot/test_agent.py -q   # the LLM seam, against a scripted model
+pytest tests/robot/test_voice_loop.py -q  # the whole loop against a simulated robot
 python ../../scripts/smoke_check.py   # against a running server
 ```

@@ -10,7 +10,8 @@ safety layers ([robot-domain.md](robot-domain.md), [robot-simulator.md](robot-si
 ([robot-behavior.md](robot-behavior.md)), and personality, emotion and expressive animation
 ([robot-personality.md](robot-personality.md), [robot-animation.md](robot-animation.md))
 robot vision ([robot-vision.md](robot-vision.md)), robot memory with its admin API
-([robot-memory.md](robot-memory.md)) and the LLM seam ([robot-agent.md](robot-agent.md)).
+([robot-memory.md](robot-memory.md)), the LLM seam ([robot-agent.md](robot-agent.md)) and the
+voice loop around it ([robot-voice.md](robot-voice.md)).
 This page is the plan, and the
 honest boundary between what runs and what is design: each phase below says which half it is
 in, and a **Delivered** note means the code is in the tree.
@@ -319,8 +320,16 @@ model is gone. Registration goes through the inherited `IOT_CTL` server-plugin p
 `detect_collisions` catches a device tool that would shadow a guarded one. Every test runs
 against a scripted model; there is no external service in CI.
 
-**Still open:** the end-to-end voice path (Phase 9 of the implementation plan) and the
-per-turn latency budget under a real provider.
+**Still open:** the per-turn latency budget under a real provider.
+
+The end-to-end voice path is delivered alongside it in `robot/voice/`
+([robot-voice.md](robot-voice.md)): five audio states with a checked transition table and an
+event per change, barge-in that cancels the stream and keeps the conversation, one arbitrated
+mouth with the four speech priorities, expression coordination that deliberately does *not*
+change the face on every transition, and a seam of two never-raising calls into the inherited
+session that claims only sessions belonging to an actual robot. The end-to-end test drives a
+real simulated robot — physics, sensors, motion timing — with a fake microphone, ASR, model
+and speaker.
 
 **Key constraints** (robot-architecture §4.1 seam ③, §3.3, R8, R9; see also [mcp.md](mcp.md)):
 

@@ -31,6 +31,7 @@ ROBOT_ROOT = PROJECT_ROOT / "robot"
 ROBOT_MODULES = (
     "robot",
     "robot.agent",
+    "robot.voice",
     "robot.protocol",
     "robot.state",
     "robot.events",
@@ -105,6 +106,9 @@ FORBIDDEN: dict[str, frozenset[str]] = {
     # the layer that decides whether the tool is allowed to run, and it reaches a device
     # only through the action executor.
     "agent": frozenset({"devices", "safety", "simulator", "vision"}),
+    # The voice loop sits beside the agent and drives it. Same rule: it may plan and speak,
+    # and it may not see the layer that decides whether an action is allowed.
+    "voice": frozenset({"devices", "safety", "simulator", "vision"}),
     "simulator": frozenset({"actions", "behavior", "devices", "events", "personality",
                             "safety", "state"}),
 }

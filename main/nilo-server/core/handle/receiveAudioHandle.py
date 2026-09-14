@@ -124,6 +124,14 @@ async def startToChat(conn: "ConnectionHandler", text):
         # RELEASE - continue processing
         processed_text = result
 
+    # Nilo robot seam: a session whose device published the robot motion tools is answered
+    # by the robot agent instead, so the same utterance can reach an action and a reply.
+    # Claims nothing for a device that is not a robot, and never raises.
+    from robot.voice import handle_utterance as robot_utterance
+
+    if await robot_utterance(conn, processed_text):
+        return
+
     # Intent not handled and plugins did not intercept, continue the normal chat flow
     conn.executor.submit(conn.chat, processed_text)
 

@@ -46,6 +46,9 @@ logger = logging.getLogger(__name__)
 #: forty times a minute.
 DEFAULT_REASON_COOLDOWN_S = 20.0
 
+#: How long a speaker gets to stop on its own before it is cancelled, in seconds.
+INTERRUPT_GRACE_S = 1.0
+
 
 class SpeechPriority(IntEnum):
     """Who wins when two things want to speak at once. Higher interrupts lower."""
@@ -266,20 +269,45 @@ class SpeechArbiter:
         return f"{intent.reason} was said {elapsed:.0f}s ago; the cooldown is {self.reason_cooldown_s:.0f}s"
 
     async def _cancel(self, reason: str) -> None:
+        """Stop what is being said. The speaker is told *before* its task is cancelled.
+
+        The order matters more than it looks. A hard cancel first would unwind the speaker
+        out of the middle of a turn, and the conversational state that turn was building —
+        what the robot actually said out loud before it was cut off — would be lost with
+        it. So the speaker is asked to stop cooperatively, given
+        :data:`INTERRUPT_GRACE_S` to settle, and only then cancelled.
+        """
         task, self._task = self._task, None
         interrupted, self._current = self._current, None
         if interrupted is not None:
             await self._publish(
                 SpeechInterrupted(robot_id=self.robot_id, intent_id=interrupted.intent_id, reason=reason)
             )
-        if task is not None and not task.done():
-            task.cancel()
         try:
             await self.speaker.interrupt(reason)
         except Exception as exc:  # an uncooperative speaker must not wedge the arbiter
             logger.warning("robot %s: interrupting speech failed: %s", self.robot_id, exc)
+        if task is None or task.done():
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=INTERRUPT_GRACE_S)
+        except (TimeoutError, asyncio.TimeoutError):
+            logger.warning(
+                "robot %s: speech did not stop within %.1fs; cancelling it",
+                self.robot_id,
+                INTERRUPT_GRACE_S,
+            )
+            task.cancel()
+        except Exception:
+            pass
 
     async def _run(self, intent: SpeakIntent) -> None:
+        if self._current is not intent:
+            # Preempted between ``create_task`` and the first line of this coroutine.
+            # Starting the speaker now would say something the arbiter already decided
+            # against, a beat after the thing that outranked it began.
+            logger.debug("robot %s: %s was preempted before it started", self.robot_id, intent.reason)
+            return
         try:
             await self.speaker.speak(intent)
         except asyncio.CancelledError:
@@ -293,20 +321,33 @@ class SpeechArbiter:
 
 
 class RecordingSpeaker:
-    """A :class:`Speaker` that records instead of speaking. For tests and dry runs."""
+    """A :class:`Speaker` that records instead of speaking. For tests and dry runs.
+
+    It honours an interrupt the way a real speaker must: an utterance that was stopped
+    part-way through is not recorded as having been said. A speaker that ignored the
+    interrupt and finished anyway would be a robot that talks over the person who
+    interrupted it, which is the failure the arbiter exists to prevent.
+    """
 
     def __init__(self, delay_s: float = 0.0) -> None:
         self.delay_s = delay_s
         self.spoken: list[SpeakIntent] = []
         self.interruptions: list[str] = []
+        self._speaking: str | None = None
+        self._stopped: str | None = None
 
     async def speak(self, intent: SpeakIntent) -> None:
+        self._speaking = intent.intent_id
         if self.delay_s:
             await asyncio.sleep(self.delay_s)
+        self._speaking = None
+        if self._stopped == intent.intent_id:
+            return
         self.spoken.append(intent)
 
     async def interrupt(self, reason: str) -> None:
         self.interruptions.append(reason)
+        self._stopped = self._speaking
 
 
 #: The signature a behaviour uses to ask for speech. Behaviours are handed one of these
@@ -316,6 +357,7 @@ SpeechRequest = Callable[[SpeakIntent], Awaitable[SpeechDecision]]
 
 __all__ = [
     "DEFAULT_REASON_COOLDOWN_S",
+    "INTERRUPT_GRACE_S",
     "RecordingSpeaker",
     "SpeakIntent",
     "SpeechArbiter",

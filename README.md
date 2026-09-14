@@ -79,8 +79,15 @@ than a smart speaker. The direction is described in [docs/robot-architecture.md]
   architecture rather than adding a second one, and every test runs against a scripted model
   ([docs/robot-agent.md](docs/robot-agent.md))
 
-**Planned:** the complete voice/interaction loop, the management API and development
-dashboard, and the physical robot firmware. See
+* Robot voice loop (`main/nilo-server/robot/voice/`): microphone to speaker with a robot in
+  the middle. Five audio states with checked transitions and an event per change, barge-in that
+  keeps the conversation, one arbitrated mouth with four speech priorities, and a face that
+  follows the conversation without twitching on every transition. The inherited VAD, ASR, TTS
+  and Opus pipeline is reused unchanged; the seam is two calls, both of which never raise
+  ([docs/robot-voice.md](docs/robot-voice.md))
+
+**Planned:** the management API and development dashboard, and the physical robot
+firmware. See
 [docs/robot-roadmap.md](docs/robot-roadmap.md).
 
 ## Architecture
