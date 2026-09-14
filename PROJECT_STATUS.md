@@ -11,7 +11,7 @@ make lint && make typecheck && make check-docs && make test
 cd main/nilo-server && pytest tests/e2e -q && open tmp/e2e-report.md
 ```
 
-Suite sizes today: **1100** unit tests (`tests/robot/`), **35** integration tests against a
+Suite sizes today: **1118** unit tests (`tests/robot/`), **35** integration tests against a
 real server and socket (`tests/integration/`), **30** end-to-end tests
 (`tests/e2e/`), plus the inherited server's own (`tests/core/`, `tests/config/`,
 `tests/plugins/`). No test needs a network, a model download or a cloud account.
