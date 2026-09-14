@@ -635,6 +635,7 @@ flowchart TB
 | robot/simulator | protocol | everything else |
 | robot/agent | actions, state, events, memory, animation, behavior | safety, devices, vision, simulator |
 | robot/voice | agent, actions, state, events, animation | safety, devices, vision, simulator |
+| robot/api | agent, actions, state, events, memory, animation, behavior | safety, devices, vision, simulator |
 | the bridge plugin | robot/*, `core/*` | — it is the seam |
 | **anything reachable from an LLM tool** | — | any motion primitive or raw actuator symbol |
 
