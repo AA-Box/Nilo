@@ -9,8 +9,10 @@ safety layers ([robot-domain.md](robot-domain.md), [robot-simulator.md](robot-si
 [robot-actions.md](robot-actions.md)), and so have the world model and the behaviour engine
 ([robot-behavior.md](robot-behavior.md)), and personality, emotion and expressive animation
 ([robot-personality.md](robot-personality.md), [robot-animation.md](robot-animation.md))
-robot vision ([robot-vision.md](robot-vision.md)) and robot memory with its admin API
-([robot-memory.md](robot-memory.md)). The LLM seam is **not implemented**. This page is the plan, and the
+robot vision ([robot-vision.md](robot-vision.md)), robot memory with its admin API
+([robot-memory.md](robot-memory.md)), the LLM seam ([robot-agent.md](robot-agent.md)) and the
+voice loop around it ([robot-voice.md](robot-voice.md)).
+This page is the plan, and the
 honest boundary between what runs and what is design: each phase below says which half it is
 in, and a **Delivered** note means the code is in the tree.
 
@@ -302,7 +304,32 @@ layering table is enforced by `tests/robot/test_layering.py`, which parses every
 
 Expose actions to the LLM. This is where the critical design rule becomes real.
 
-**Build:** the tool module inside **plugins/robot_bridge/**.
+**Build:** `robot/agent/`, plus a four-line registration module in
+`main/nilo-server/plugins_func/functions/robot_tools.py`.
+
+**Delivered** (see [robot-agent.md](robot-agent.md)): `robot/agent/` — fourteen semantic
+tools with frozen pydantic argument models (`extra="forbid"`, integers only, bounds taken
+from the live safety limits so the schema and the policy cannot drift), four permission
+classes behind a configurable `ToolPolicy` with one non-negotiable rule (`robot.stop` is
+never refused), a runtime context that carries current state and no telemetry history, a
+`RobotAgent` that wraps the **existing** provider architecture rather than adding a second
+one, interruption that preserves conversational state, a single speech-arbitration path
+for proactive speech (`SpeakIntent`, four priorities, per-reason cooldown, verbatim safety
+lines), and a fallback that leaves every non-conversational subsystem untouched when the
+model is gone. Registration goes through the inherited `IOT_CTL` server-plugin path, and
+`detect_collisions` catches a device tool that would shadow a guarded one. Every test runs
+against a scripted model; there is no external service in CI.
+
+**Still open:** the per-turn latency budget under a real provider.
+
+The end-to-end voice path is delivered alongside it in `robot/voice/`
+([robot-voice.md](robot-voice.md)): five audio states with a checked transition table and an
+event per change, barge-in that cancels the stream and keeps the conversation, one arbitrated
+mouth with the four speech priorities, expression coordination that deliberately does *not*
+change the face on every transition, and a seam of two never-raising calls into the inherited
+session that claims only sessions belonging to an actual robot. The end-to-end test drives a
+real simulated robot — physics, sensors, motion timing — with a fake microphone, ASR, model
+and speaker.
 
 **Key constraints** (robot-architecture §4.1 seam ③, §3.3, R8, R9; see also [mcp.md](mcp.md)):
 
@@ -498,9 +525,14 @@ admin app on its own port with its own constant-time-compared token, serving mem
 inspection, recall, consolidation, the delete paths and the behaviour engine's
 `why` explanation; it has no endpoint that can move a robot, and a test asserts that.
 
-**Still open:** binding the API into `app.py` (the 3-line budget) with the done-callback
-escalation — `robot/api/server.py:supervise` is written and unused until then — the
-per-device TTS/LLM construction, and the two-robot concurrency proof.
+**Delivered, the control and dashboard halves** (see [robot-api.md](robot-api.md)): the API
+is bound into `app.py` with the done-callback escalation, and it now *can* move a robot —
+every control request becomes a typed action submitted to the same executor and judged by
+the same safety policy, gated by a token, a loopback rule and a rate limit. Plus a
+server-sent event stream, an OpenAPI document generated from the request models, and a
+single-file development dashboard with a simulator panel.
+
+**Still open:** the per-device TTS/LLM construction, and the two-robot concurrency proof.
 
 **Key constraints** (robot-architecture §4.2, §4.3, R5, R11, R12):
 
@@ -528,10 +560,12 @@ per-device TTS/LLM construction, and the two-robot concurrency proof.
 
 ### Acceptance criteria
 
-* **Partly done.** The API enumerates connected robots and reports per-robot state, and
-  every endpoint it has is tested. It deliberately does **not** accept a semantic action or
-  an e-stop yet: actuation from an admin surface is a second path to the hardware, and it
-  needs the authentication story finished first.
+* **Done.** The API enumerates connected robots, reports per-robot state, world, behaviour,
+  memory, tools and conversation, and accepts semantic actions and an e-stop — behind the
+  authentication story this criterion was waiting for. Actuation is not a second path to the
+  hardware: a control request builds a typed action and submits it to the executor, and a
+  test reads every file under `robot/api/` to assert none of them calls a device or reaches
+  the safety policy.
 * **Done.** An unauthenticated request to every endpoint except `/health` is rejected, as
   is a wrong token; an API with no token configured fails closed. The admin credential is
   separate from the device-token signing key by construction — nothing in `robot/api/`
@@ -539,8 +573,8 @@ per-device TTS/LLM construction, and the two-robot concurrency proof.
 * Two simulated robots run a full session concurrently with **no** cross-talk: separate TTS
   pipelines, separate memory ids, separate world state. Asserted, because R5 says the naive
   path fails exactly here.
-* Killing the robot API task causes a logged escalation and a safe state, not a silently
-  degraded server.
+* **Done.** Killing the robot API task causes a logged escalation, not a silently degraded
+  server: `app.py` attaches `robot/api/server.py:supervise` to it.
 * **Done.** Robot state survives a server restart; `tests/robot/test_memory.py` writes,
   closes the store, opens a new one over the same file and reads back — including that
   consolidation does not re-derive what it already folded in.

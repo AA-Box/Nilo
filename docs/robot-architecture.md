@@ -602,6 +602,8 @@ flowchart TB
         MEM["memory"]
         DEV["devices"]
         SIM["simulator"]
+        AG["agent (the LLM seam)"]
+        VO["voice (the interaction loop)"]
     end
     BR --> CH & ACT
     CH --- TOOLS
@@ -612,6 +614,9 @@ flowchart TB
     BEH --> ACT & ST & PERS
     VIS --> ST & EV
     MEM --> ST
+    AG --> ACT & ST & EV & MEM
+    VO --> AG & ACT & EV
+    CH -. "lazy import" .-> VO
     DEV --> EV & PROTO
     DEV -. "lazy import" .-> CH
 ```
@@ -628,6 +633,9 @@ flowchart TB
 | robot/vision | protocol, events, state | actions, behavior |
 | robot/memory | protocol, state | actions, behavior |
 | robot/simulator | protocol | everything else |
+| robot/agent | actions, state, events, memory, animation, behavior | safety, devices, vision, simulator |
+| robot/voice | agent, actions, state, events, animation | safety, devices, vision, simulator |
+| robot/api | agent, actions, state, events, memory, animation, behavior | safety, devices, vision, simulator |
 | the bridge plugin | robot/*, `core/*` | — it is the seam |
 | **anything reachable from an LLM tool** | — | any motion primitive or raw actuator symbol |
 

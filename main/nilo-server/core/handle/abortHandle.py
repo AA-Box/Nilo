@@ -17,4 +17,9 @@ async def handleAbortMessage(conn: "ConnectionHandler"):
         json.dumps({"type": "tts", "state": "stop", "session_id": conn.session_id})
     )
     conn.clearSpeakStatus()
+    # Nilo robot seam: the voice loop keeps the conversation and starts listening again.
+    # Returns False for a session it does not own; never raises.
+    from robot.voice import handle_barge_in as robot_barge_in
+
+    await robot_barge_in(conn)
     conn.logger.bind(tag=TAG).info("Abort message received-end")

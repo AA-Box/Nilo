@@ -30,6 +30,9 @@ ROBOT_ROOT = PROJECT_ROOT / "robot"
 
 ROBOT_MODULES = (
     "robot",
+    "robot.agent",
+    "robot.voice",
+    "robot.api",
     "robot.protocol",
     "robot.state",
     "robot.events",
@@ -100,6 +103,17 @@ FORBIDDEN: dict[str, frozenset[str]] = {
         {"actions", "animation", "behavior", "devices", "safety", "simulator", "vision", "memory"}
     ),
     "devices": frozenset({"actions", "behavior", "personality", "safety", "simulator"}),
+    # The agent is the top layer. It may plan, converse and choose a tool; it may not see
+    # the layer that decides whether the tool is allowed to run, and it reaches a device
+    # only through the action executor.
+    "agent": frozenset({"devices", "safety", "simulator", "vision"}),
+    # The voice loop sits beside the agent and drives it. Same rule: it may plan and speak,
+    # and it may not see the layer that decides whether an action is allowed.
+    "voice": frozenset({"devices", "safety", "simulator", "vision"}),
+    # The management API reads everything and commands through the action layer. It may not
+    # reach the safety policy directly: an admin surface that could relax a limit would be
+    # the second path to the hardware this whole design exists to prevent.
+    "api": frozenset({"devices", "safety", "simulator", "vision"}),
     "simulator": frozenset({"actions", "behavior", "devices", "events", "personality",
                             "safety", "state"}),
 }

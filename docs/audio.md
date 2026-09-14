@@ -524,3 +524,6 @@ listing the expected `libs/` paths when it is missing. See [getting-started.md](
 Robot-side audio — spatial awareness, sound localisation, an `AudioPipeline` bound to embodied
 behaviour — is **Planned**, not built. Only the protocol layer of the robot domain exists today;
 see [robot-architecture.md](robot-architecture.md) and [robot-roadmap.md](robot-roadmap.md).
+
+For the robot loop that sits inside this pipeline — audio state, barge-in, speech
+priority and expression coordination — see [robot-voice.md](robot-voice.md).

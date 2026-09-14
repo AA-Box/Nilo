@@ -65,15 +65,15 @@ async def test_health_needs_no_token_and_leaks_nothing(api):
 @pytest.mark.parametrize(
     ("method", "path"),
     [
-        ("GET", "/robots"),
-        ("GET", f"/robots/{ROBOT_ID}"),
-        ("GET", f"/robots/{ROBOT_ID}/memories"),
-        ("GET", f"/robots/{ROBOT_ID}/memories/recall"),
-        ("GET", f"/robots/{ROBOT_ID}/why"),
-        ("POST", f"/robots/{ROBOT_ID}/memories/consolidate"),
-        ("DELETE", f"/robots/{ROBOT_ID}/memories"),
-        ("DELETE", f"/robots/{ROBOT_ID}/people/ahmad"),
-        ("DELETE", f"/robots/{ROBOT_ID}/memories/episodic/anything"),
+        ("GET", "/api/robots"),
+        ("GET", f"/api/robots/{ROBOT_ID}"),
+        ("GET", f"/api/robots/{ROBOT_ID}/memory"),
+        ("GET", f"/api/robots/{ROBOT_ID}/memory/recall"),
+        ("GET", f"/api/robots/{ROBOT_ID}/behavior"),
+        ("POST", f"/api/robots/{ROBOT_ID}/memory/consolidate"),
+        ("DELETE", f"/api/robots/{ROBOT_ID}/memory"),
+        ("DELETE", f"/api/robots/{ROBOT_ID}/people/ahmad"),
+        ("DELETE", f"/api/robots/{ROBOT_ID}/memory/episodic/anything"),
     ],
 )
 async def test_every_endpoint_but_health_requires_the_admin_token(api, method: str, path: str):
@@ -84,7 +84,7 @@ async def test_every_endpoint_but_health_requires_the_admin_token(api, method: s
 
 async def test_a_wrong_token_is_refused(api):
     client, _ = api
-    response = await client.get("/robots", headers={"Authorization": "Bearer not-the-token"})
+    response = await client.get("/api/robots", headers={"Authorization": "Bearer not-the-token"})
     assert response.status == 401
 
 
@@ -97,7 +97,8 @@ async def test_an_api_with_no_token_configured_fails_closed(runtime):
     await client.start_server()
     try:
         assert (await client.get("/health")).status == 200
-        assert (await client.get("/robots")).status == 503
+        assert (await client.get("/api/meta")).status == 200
+        assert (await client.get("/api/robots")).status == 503
     finally:
         await client.close()
 
@@ -107,13 +108,14 @@ async def test_an_api_with_no_token_configured_fails_closed(runtime):
 
 async def test_robots_are_listed(api):
     client, _ = api
-    payload = await (await client.get("/robots", headers=AUTH)).json()
-    assert payload["robots"] == [ROBOT_ID]
+    payload = await (await client.get("/api/robots", headers=AUTH)).json()
+    assert [entry["robot_id"] for entry in payload["robots"]] == [ROBOT_ID]
+    assert payload["robots"][0]["connected"] is True
 
 
 async def test_one_robot_reports_its_memory_counts(api):
     client, _ = api
-    payload = await (await client.get(f"/robots/{ROBOT_ID}", headers=AUTH)).json()
+    payload = await (await client.get(f"/api/robots/{ROBOT_ID}", headers=AUTH)).json()
     assert payload["robot_id"] == ROBOT_ID
     assert payload["connected"] is True
     assert payload["memory"]["episodes"] == 2  # the meeting and the play
@@ -122,7 +124,7 @@ async def test_one_robot_reports_its_memory_counts(api):
 
 async def test_memories_are_listed_by_kind(api):
     client, _ = api
-    payload = await (await client.get(f"/robots/{ROBOT_ID}/memories", headers=AUTH)).json()
+    payload = await (await client.get(f"/api/robots/{ROBOT_ID}/memory", headers=AUTH)).json()
     assert {e["summary"] for e in payload["episodes"]} == {"met Ahmad", "played with the cube"}
     assert payload["facts"][0]["value"] == "Nilo"
     assert payload["facts"][0]["provenance"]["learned_from"] == "operator"
@@ -130,7 +132,7 @@ async def test_memories_are_listed_by_kind(api):
     assert payload["working"] == ["ahmad: what shall we do?"]
 
     only_people = await (
-        await client.get(f"/robots/{ROBOT_ID}/memories?kind=person", headers=AUTH)
+        await client.get(f"/api/robots/{ROBOT_ID}/memory?kind=person", headers=AUTH)
     ).json()
     assert "episodes" not in only_people
     assert only_people["people"]
@@ -139,7 +141,7 @@ async def test_memories_are_listed_by_kind(api):
 async def test_recall_shows_what_would_go_into_a_prompt(api):
     client, _ = api
     response = await client.get(
-        f"/robots/{ROBOT_ID}/memories/recall?q=cube&person=ahmad", headers=AUTH
+        f"/api/robots/{ROBOT_ID}/memory/recall?q=cube&person=ahmad", headers=AUTH
     )
     payload = await response.json()
     assert payload["results"]
@@ -150,7 +152,7 @@ async def test_recall_shows_what_would_go_into_a_prompt(api):
 
 async def test_why_explains_the_behaviour_decision(api):
     client, _ = api
-    payload = await (await client.get(f"/robots/{ROBOT_ID}/why?fresh=true", headers=AUTH)).json()
+    payload = await (await client.get(f"/api/robots/{ROBOT_ID}/behavior?fresh=true", headers=AUTH)).json()
     assert payload["robot_id"] == ROBOT_ID
     assert "selected" in payload
     assert "alternatives" in payload
@@ -158,12 +160,12 @@ async def test_why_explains_the_behaviour_decision(api):
 
 async def test_an_unknown_robot_is_a_404(api):
     client, _ = api
-    assert (await client.get("/robots/nobody/memories", headers=AUTH)).status == 404
+    assert (await client.get("/api/robots/nobody/memory", headers=AUTH)).status == 404
 
 
 async def test_a_bad_parameter_is_a_400_not_a_500(api):
     client, _ = api
-    response = await client.get(f"/robots/{ROBOT_ID}/memories?limit=lots", headers=AUTH)
+    response = await client.get(f"/api/robots/{ROBOT_ID}/memory?limit=lots", headers=AUTH)
     assert response.status == 400
 
 
@@ -175,7 +177,7 @@ async def test_consolidation_can_be_triggered(api):
     for _ in range(3):
         await memory.met_person("ahmad", display_name="Ahmad")
     payload = await (
-        await client.post(f"/robots/{ROBOT_ID}/memories/consolidate", headers=AUTH)
+        await client.post(f"/api/robots/{ROBOT_ID}/memory/consolidate", headers=AUTH)
     ).json()
     assert payload["episodes_read"] > 0
     assert payload["facts_written"] >= 1
@@ -186,25 +188,25 @@ async def test_one_memory_can_be_deleted_and_deleting_it_twice_is_a_404(api):
     client, memory = api
     episode = (await memory.episodes())[0]
     response = await client.delete(
-        f"/robots/{ROBOT_ID}/memories/{MemoryKind.EPISODIC.value}/{episode.id}", headers=AUTH
+        f"/api/robots/{ROBOT_ID}/memory/{MemoryKind.EPISODIC.value}/{episode.id}", headers=AUTH
     )
     assert response.status == 200
     assert (await response.json())["deleted"] is True
     again = await client.delete(
-        f"/robots/{ROBOT_ID}/memories/{MemoryKind.EPISODIC.value}/{episode.id}", headers=AUTH
+        f"/api/robots/{ROBOT_ID}/memory/{MemoryKind.EPISODIC.value}/{episode.id}", headers=AUTH
     )
     assert again.status == 404
 
 
 async def test_an_unknown_memory_kind_is_refused(api):
     client, _ = api
-    response = await client.delete(f"/robots/{ROBOT_ID}/memories/dreams/abc", headers=AUTH)
+    response = await client.delete(f"/api/robots/{ROBOT_ID}/memory/dreams/abc", headers=AUTH)
     assert response.status == 400
 
 
 async def test_deleting_a_person_removes_everything_about_them(api):
     client, memory = api
-    response = await client.delete(f"/robots/{ROBOT_ID}/people/ahmad", headers=AUTH)
+    response = await client.delete(f"/api/robots/{ROBOT_ID}/people/ahmad", headers=AUTH)
     assert response.status == 200
     assert (await response.json())["rows"] >= 2
     assert await memory.person("ahmad") is None
@@ -213,7 +215,7 @@ async def test_deleting_a_person_removes_everything_about_them(api):
 
 async def test_a_robot_memory_can_be_cleared(api):
     client, memory = api
-    response = await client.delete(f"/robots/{ROBOT_ID}/memories", headers=AUTH)
+    response = await client.delete(f"/api/robots/{ROBOT_ID}/memory", headers=AUTH)
     assert response.status == 200
     assert (await response.json())["cleared"] is True
     assert await memory.counts() == {"episodes": 0, "facts": 0, "people": 0, "working": 0}
@@ -222,18 +224,24 @@ async def test_a_robot_memory_can_be_cleared(api):
 # -- what the API is not ------------------------------------------------------------------------------------
 
 
-async def test_there_is_no_endpoint_that_moves_a_robot(api):
-    """Actuation belongs to the action layer, behind the safety policy. An admin surface
-    that could drive a robot would be a second path to the hardware."""
-    client, _ = api
-    app = client.app
-    paths = {resource.canonical for resource in app.router.resources()}
-    for path in paths:
-        assert not any(word in path for word in ("move", "turn", "drive", "action", "stop", "actuator"))
+async def test_no_route_reaches_a_device_except_through_the_executor(api):
+    """The API can move a robot now. It still has no second path to the hardware.
+
+    Every control route builds a typed action and submits it to the same executor, which
+    is the only thing in the process that calls a device. This is the mechanical check:
+    nothing under ``robot/api`` calls ``call_tool``, and nothing imports the safety policy
+    it would have to get past (``tests/robot/test_layering.py`` enforces the second half).
+    """
+    import pathlib
+
+    for path in sorted((pathlib.Path(__file__).resolve().parents[2] / "robot/api").glob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        assert "call_tool" not in source, f"{path.name} talks to a device directly"
+        assert "RobotSafetyPolicy" not in source, f"{path.name} reaches past the action layer"
 
 
 async def test_the_admin_token_comes_from_the_environment_and_fails_closed():
-    from robot.api.server import ADMIN_TOKEN_ENV, admin_token_from_env
+    from robot.api import ADMIN_TOKEN_ENV, admin_token_from_env
 
     assert admin_token_from_env({ADMIN_TOKEN_ENV: "  secret  "}) == "secret"
     assert admin_token_from_env({}) is None

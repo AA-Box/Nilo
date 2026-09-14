@@ -38,16 +38,18 @@ ENV_VARS = {
     "NILO_SERVER_PORT",
     "NILO_HTTP_PORT",
     "NILO_LOG_LEVEL",
-    # Read by robot/api/server.py:admin_token_from_env. Deliberately not in the config
-    # dict: manager-api mode replaces that wholesale (docs/robot-memory.md).
+    # Read by robot/api/security.py. Deliberately not in the config dict: manager-api mode
+    # replaces that wholesale (docs/robot-memory.md, docs/robot-api.md).
     "NILO_ROBOT_ADMIN_TOKEN",
+    "NILO_ROBOT_API_HOST",
+    "NILO_ROBOT_API_PORT",
+    "NILO_ROBOT_API_ALLOW_REMOTE_CONTROL",
 }
 
 # Paths the documentation names as *planned* (docs/robot-roadmap.md). They must not exist yet:
 # once one does, delete it here so the normal "this path exists" rule takes over.
 PLANNED_PATHS = {
     "robot/.ruff.toml",
-    "robot/agent",
 }
 
 # Files allowed to contain "xiaozhi". The legacy protocol was removed, so the only legitimate
