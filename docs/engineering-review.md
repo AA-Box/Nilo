@@ -112,7 +112,7 @@ a variable that names no field is a warning, because the failure it otherwise pr
   subsystem that otherwise has none, kept because the alternative — a per-connection set —
   is a second place to forget to clean up. It is bounded by a done-callback.
 
-## The five biggest remaining risks
+## The biggest remaining risks
 
 1. **The simulator is a model, and the model is optimistic.** Every timing number in this
    repository was measured with an accelerated clock over a loopback socket, and every
@@ -133,13 +133,19 @@ a variable that names no field is a warning, because the failure it otherwise pr
    meet. Nothing detects the divergence automatically — the two tool lists are compared by
    hand.
 
-4. **Nobody has run this for a week.** The bounds are now in place and the leaks that were
+4. **Some of the deployment story is unexercised.** Both Compose files are validated in CI
+   and the base Dockerfile is built by the image workflow, but no job runs `docker compose
+   up` and the development file has not been built end to end. It is a plausible
+   configuration rather than a proven one, and the first person to try it on a clean
+   machine is the test.
+
+5. **Nobody has run this for a week.** The bounds are now in place and the leaks that were
    found are fixed, but the longest continuous run of this system is a two-minute test
    suite. Memory consolidation has never run against months of episodes, SQLite has never
    grown past a few hundred rows, and "does the world model's decay behave over a weekend"
    is an open question with a plausible answer rather than a measured one.
 
-5. **The language model is an unbounded dependency in a bounded system.** Everything else
+6. **The language model is an unbounded dependency in a bounded system.** Everything else
    here has a ceiling — a distance, a timeout, a queue depth, a token budget. The model has
    a 30-second timeout and three rounds, and beyond that its behaviour is whatever the
    provider does: a prompt that grows with the tool list, a provider that changes its

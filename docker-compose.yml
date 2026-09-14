@@ -15,13 +15,16 @@ services:
   nilo-server:
     build:
       context: .
-      dockerfile: Dockerfile-server
-      args:
-        # The base image carries the Python dependencies. Build it once locally with
-        # `make docker-build`, or let this pull the published one.
-        BASE_IMAGE: ghcr.io/aa-box/nilo-server:base
+      # The *base* image, not the application one. It is the system libraries and the Python
+      # dependencies and nothing else, which is exactly what a development container needs:
+      # the code arrives through the bind mount below, so an edit is a restart rather than a
+      # rebuild. It also means this file needs no registry — `docker compose up` works from a
+      # clean clone with no login and no published image. The first build is slow (it
+      # installs torch); every one after it is cached.
+      dockerfile: Dockerfile-server-base
     image: nilo-server:dev
     container_name: nilo-server-dev
+    command: ["python", "app.py"]
     environment:
       TZ: UTC
       NILO_SERVER_HOST: 0.0.0.0
@@ -57,6 +60,9 @@ services:
   # WebSocket a real device uses; nothing about the backend knows it is simulated.
   nilo-simulator:
     profiles: ["demo"]
+    build:
+      context: .
+      dockerfile: Dockerfile-server-base
     image: nilo-server:dev
     container_name: nilo-simulator
     depends_on:

@@ -12,7 +12,7 @@ cd main/nilo-server && pytest tests/e2e -q && open tmp/e2e-report.md
 ```
 
 Findings from the engineering review that produced the second half of this list, and the
-five risks that outlived it, are in [`docs/engineering-review.md`](docs/engineering-review.md).
+risks that outlived it, are in [`docs/engineering-review.md`](docs/engineering-review.md).
 
 Suite sizes today: **1152** unit tests (`tests/robot/`), **35** integration tests against a
 real server and socket (`tests/integration/`), **30** end-to-end tests
@@ -128,6 +128,7 @@ Real code, real tests, and a named limit. None of these is a stub.
 | **Memory consolidation** | Episodic → semantic consolidation runs, merges rather than overwrites, and is tested | It has never run against months of data. The retention story is a policy nobody has written |
 | **Personality persistence** | Snapshots written on detach and restored on reconnect, when `personality.store_dir` is set | Opt-in, and off by default. A runtime with no store keeps personality in memory and loses it on restart |
 | **Long-term memory in a running server** | The stores, the retrieval, the admin API and the agent tools all work, and the composition root opens a database when `memory.enabled` is true | Off by default, so a first run has working memory only. Until this review nothing opened one at all |
+| **The container images** | Both Compose files are validated in CI, and `Dockerfile-server-base` is built by the image workflow | Nothing builds or runs the *development* Compose file end to end — no CI job does `docker compose up`, and it has not been run on a machine with a working daemon since it was written |
 | **Multi-robot** | Two robots in one process are two registries, two engines, two personalities, and a test proves it | Nothing has run more than a handful at once. There is no back-pressure story for fifty |
 
 ---

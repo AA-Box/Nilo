@@ -43,7 +43,9 @@ def test_the_deployment_has_a_readiness_healthcheck():
 def test_development_compose_builds_from_the_tree_and_needs_no_model_weights():
     doc = yaml.safe_load(DEV_COMPOSE.read_text(encoding="utf-8"))
     server = doc["services"]["nilo-server"]
-    assert server["build"]["dockerfile"] == "Dockerfile-server"
+    # The *base* image: system libraries and Python dependencies, with the code bind-mounted
+    # on top. No registry, no published image, no login — `up` works from a clean clone.
+    assert server["build"]["dockerfile"] == "Dockerfile-server-base"
     assert any(volume.endswith(":/opt/nilo-server") for volume in server["volumes"])
     assert not any("model.pt" in volume for volume in server["volumes"]), (
         "`docker compose up` from a clean clone must not need a model download"
