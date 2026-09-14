@@ -45,6 +45,11 @@ logger = logging.getLogger(__name__)
 #: (``config/config_loader.py``), and a credential that vanishes in the deployment with
 #: the most robots in it is not a credential.
 ADMIN_TOKEN_ENV = "NILO_ROBOT_ADMIN_TOKEN"
+#: A file holding the admin token, for a deployment that mounts secrets rather than
+#: exporting them. Read first, because that is the direction a hardened deployment moves
+#: in: `docker compose` and every orchestrator can mount a file, and a file does not show
+#: up in `ps`, in an image layer or in a crash dump of the environment.
+ADMIN_TOKEN_FILE_ENV = "NILO_ROBOT_ADMIN_TOKEN_FILE"
 
 #: Set to ``1``/``true``/``yes`` to allow control endpoints when the API is not on
 #: loopback. Deliberately a separate switch from the host: binding to ``0.0.0.0`` to read
@@ -88,6 +93,11 @@ class ApiError(Exception):
         self.message = message
 
 
+#: How many clients the rate limiter remembers at once. Well above any real deployment —
+#: the management API is one dashboard and one scraper — and a ceiling rather than a rule.
+MAX_TRACKED_CLIENTS = 1024
+
+
 class RateLimiter:
     """A fixed-window counter per client. Small, in-process, and good enough for a control plane.
 
@@ -113,6 +123,7 @@ class RateLimiter:
         if self.limit <= 0:
             return
         now = self._clock()
+        self._evict(now)
         hits = self._hits.setdefault(client, deque())
         cutoff = now - self.window_s
         while hits and hits[0] < cutoff:
@@ -128,6 +139,26 @@ class RateLimiter:
 
     def reset(self) -> None:
         self._hits.clear()
+
+    def _evict(self, now: float) -> None:
+        """Forget clients with nothing in the window, and cap how many are tracked.
+
+        The map is keyed on a peer address, so without this it grows for the life of the
+        process — one entry per address that ever made a control request. Only an
+        authenticated caller can reach it (the token is checked first), which makes this a
+        slow leak rather than a denial of service, and a slow leak in a process meant to
+        run for months is still a leak.
+        """
+        if len(self._hits) < MAX_TRACKED_CLIENTS:
+            return
+        cutoff = now - self.window_s
+        for client in [key for key, hits in self._hits.items() if not hits or hits[-1] < cutoff]:
+            del self._hits[client]
+        if len(self._hits) >= MAX_TRACKED_CLIENTS:
+            # Every tracked client is active. Keep the newest, and let the rest through:
+            # a rate limiter that runs out of memory is worse than one that forgets.
+            newest = sorted(self._hits.items(), key=lambda entry: entry[1][-1], reverse=True)
+            self._hits = dict(newest[: MAX_TRACKED_CLIENTS // 2])
 
 
 def is_loopback(host: str) -> bool:
@@ -148,11 +179,17 @@ def admin_token_from_env(env: dict[str, str] | None = None) -> str | None:
     the right behaviour for a surface that can delete a robot's memory and move it.
     """
     source = os.environ if env is None else env
-    token = source.get(ADMIN_TOKEN_ENV, "").strip()
+    from robot.config import resolve_secret  # noqa: PLC0415 - one direction, and only here
+
+    token = resolve_secret(
+        source.get(ADMIN_TOKEN_ENV, ""), file_path=source.get(ADMIN_TOKEN_FILE_ENV, "") or None
+    ).strip()
     if not token:
         logger.warning(
-            "%s is not set; the robot management API will refuse every authenticated request",
+            "neither %s nor %s is set; the robot management API will refuse every "
+            "authenticated request",
             ADMIN_TOKEN_ENV,
+            ADMIN_TOKEN_FILE_ENV,
         )
         return None
     return token
@@ -267,6 +304,7 @@ def client_key(request: Any) -> str:
 
 __all__ = [
     "ADMIN_TOKEN_ENV",
+    "ADMIN_TOKEN_FILE_ENV",
     "ALLOW_REMOTE_CONTROL_ENV",
     "API_HOST_ENV",
     "API_PORT_ENV",
@@ -274,6 +312,7 @@ __all__ = [
     "DEFAULT_RATE_LIMIT",
     "DEFAULT_RATE_WINDOW_S",
     "ApiError",
+    "MAX_TRACKED_CLIENTS",
     "ApiSecurity",
     "RateLimiter",
     "Sensitivity",

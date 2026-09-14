@@ -635,6 +635,10 @@ class RobotActionExecutor:
         cancelled = await self.cancel_all(
             event.robot_id, reason=f"the robot disconnected ({event.reason.value})", stop=False
         )
+        # The rate-limit window is per robot and nothing else drops it. One deque per robot
+        # that ever connected is a small leak, but it is a leak, and a process that is up
+        # for months sees every robot the household ever had.
+        self._motion_window.pop(event.robot_id, None)
         if cancelled:
             logger.warning(
                 "robot %s disconnected: %d action(s) cancelled; a stop cannot be delivered over a "

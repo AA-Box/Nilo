@@ -25,10 +25,15 @@ make lint          # ruff
 make typecheck     # mypy, strict for robot/
 make check-docs    # links, paths, env vars, branding rules
 make test          # pytest
+make e2e           # the ten end-to-end scenarios; writes main/nilo-server/tmp/e2e-report.md
 ```
 
-CI runs the same four plus `docker compose config` and a second test job against the dev-only
-dependency slice. The pull-request template lists the checklist.
+CI runs the same five plus `docker compose config` for both Compose files and a second test
+job against the dev-only dependency slice. The pull-request template lists the checklist.
+
+If your change touches inherited code under `core/`, `config/`, `plugins/` or
+`plugins_func/`, add it to [`docs/upstream-changes.md`](docs/upstream-changes.md) — there is
+a test that fails until you do.
 
 ## Where code goes
 
@@ -37,6 +42,7 @@ dependency slice. The pull-request template lists the checklist.
 | Robot behaviour, actions, world state, protocol | `main/nilo-server/robot/` |
 | A new AI provider | `main/nilo-server/core/providers/<kind>/<name>.py` + a config block whose `type` matches the filename |
 | A tool the LLM can call | `main/nilo-server/plugins_func/functions/` with `@register_function` |
+| A configurable value | a field on a model in `main/nilo-server/robot/config.py` — never a sixth loader |
 | Anything else | see [`docs/development.md`](docs/development.md) |
 
 `main/nilo-server/core/`, `config/`, `plugins_func/` and `models/` are derived from an upstream

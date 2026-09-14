@@ -243,8 +243,12 @@ file. Details: [docs/testing.md](docs/testing.md).
 ## Docker
 
 ```bash
+echo "$(openssl rand -hex 32)" > secrets/nilo_admin_token
+docker compose up                       # development: builds from the tree, no model needed
+docker compose --profile demo up        # ...and a simulated robot talking to it
+
 make docker-build                       # ghcr.io/aa-box/nilo-server:base and :latest, locally
-cd main/nilo-server && docker compose up -d
+cd main/nilo-server && docker compose up -d   # deployment: the published image
 ```
 
 The Compose file mounts `./data` (your config) and the FunASR model file, exposes 8000 (WebSocket)
@@ -258,6 +262,9 @@ world model → behaviour engine and personality → management API, memory, mul
 bring-up. Acceptance criteria per phase: [docs/robot-roadmap.md](docs/robot-roadmap.md).
 
 ## Documentation
+
+The architecture on one page, with every flow and every failure mode, is
+[docs/architecture-final.md](docs/architecture-final.md).
 
 Start at [docs/getting-started.md](docs/getting-started.md) for the server, or
 [docs/robot-getting-started.md](docs/robot-getting-started.md) to go from `git clone` to a

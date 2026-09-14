@@ -12,11 +12,13 @@ source of truth; read them before touching anything:
 * [`docs/robot-agent.md`](../../docs/robot-agent.md) — the LLM seam: tools, permissions, context, speech
 * [`docs/robot-voice.md`](../../docs/robot-voice.md) — the voice loop: audio state, barge-in, expression
 * [`docs/robot-api.md`](../../docs/robot-api.md) — the management API, its three gates, and the dashboard
+* [`docs/architecture-final.md`](../../docs/architecture-final.md) — the whole system, every flow, every failure mode
 * [`docs/robot-getting-started.md`](../../docs/robot-getting-started.md) — clone to a talking, moving, deciding robot
 * [`docs/robot-protocol.md`](../../docs/robot-protocol.md) — every frame a device puts on the wire
 * [`docs/observability.md`](../../docs/observability.md) — metrics, correlation ids, the trace
 * [`docs/development.md`](../../docs/development.md) — setup, lint, tests, layout
 * [`docs/upstream.md`](../../docs/upstream.md) — which code is inherited and how it is synced
+* [`docs/upstream-changes.md`](../../docs/upstream-changes.md) — every hook into it, and a test that enforces the list
 * [`docs/branding.md`](../../docs/branding.md) — naming rules (no product name in domain code, no Chinese)
 
 ## Layout in one glance
@@ -92,6 +94,13 @@ Rules of thumb:
 * Backend safety is a policy filter, never a guarantee. Do not write a comment, log line or
   doc sentence implying the backend can stop a robot.
 * Device routes live only in `robot/protocol/`; never spell a path into `core/`.
+* The subsystem is **assembled in one place**: `robot/config.py` reads the hierarchy and
+  `robot/bootstrap.py` turns it into a runtime, called once from `app.py`. A new configurable
+  value is a field on a model there, never a sixth loader (`docs/configuration.md`).
+* Every hook into inherited code is listed in `docs/upstream-changes.md` and enforced by
+  `tests/robot/test_upstream_seam.py`. Adding one without documenting it fails CI.
+* Metrics and the correlation trace are one subscriber over the existing events
+  (`robot/observability.py`). Never instrument a subsystem directly (`docs/observability.md`).
 * English only in comments, log lines and docs.
 
 ## Commands that work

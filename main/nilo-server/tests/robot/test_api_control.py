@@ -332,3 +332,19 @@ async def test_injection_is_treated_as_control_not_as_a_read():
         await client.close()
         await device.aclose()
         await runtime.aclose()
+
+
+def test_the_rate_limiter_does_not_remember_every_client_for_ever() -> None:
+    """One entry per peer address that ever made a control request is a slow leak."""
+    from robot.api.security import MAX_TRACKED_CLIENTS, RateLimiter
+
+    now = 0.0
+    limiter = RateLimiter(limit=5, window_s=10.0, clock=lambda: now)
+    for index in range(MAX_TRACKED_CLIENTS + 50):
+        limiter.check(f"10.0.0.{index}")
+    assert len(limiter._hits) <= MAX_TRACKED_CLIENTS
+
+    # And a client that has gone quiet is forgotten rather than carried.
+    now = 100.0
+    limiter.check("10.0.0.1")
+    assert len(limiter._hits) < MAX_TRACKED_CLIENTS

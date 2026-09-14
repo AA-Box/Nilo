@@ -139,6 +139,26 @@ async def test_a_robot_with_no_model_falls_back_to_the_inherited_chat_path(wired
     assert await handle_utterance(conn, "hello", runtime) is False
 
 
+async def test_the_loop_takes_the_provider_this_session_already_has(wired):
+    """The wiring that makes the voice loop reachable in a real server.
+
+    Nothing in ``app.py`` ever called ``runtime.set_llm``, so the runtime's provider was
+    always ``None`` and this seam always handed the turn back to the inherited chat path.
+    The session has one — the inherited handler built or was given it — and it is the model
+    this device would have been answered by anyway.
+    """
+    runtime, _ = wired
+    runtime.set_llm(None)
+    (await runtime.agent(ROBOT_ID)).llm = None
+    conn = FakeSession()
+    conn.llm = ScriptedLLM("Hello from the session's own model.")
+
+    loop = await voice_loop(conn, runtime)
+    assert loop is not None
+    assert loop.agent.llm is conn.llm
+    assert await handle_utterance(conn, "hello", runtime) is True
+
+
 async def test_a_real_robot_session_is_claimed(wired):
     runtime, _ = wired
     conn = FakeSession()

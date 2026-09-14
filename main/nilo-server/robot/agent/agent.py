@@ -38,6 +38,7 @@ import asyncio
 import json
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -76,6 +77,26 @@ FALLBACK_REPLIES: dict[str, str] = {
 
 #: How long one model turn may take before it is abandoned and the fallback speaks.
 DEFAULT_LLM_TIMEOUT_S = 30.0
+
+#: Threads reserved for pumping blocking model generators.
+#:
+#: Its own pool, and that is the point. A synchronous provider holds a thread for the whole
+#: turn — thirty seconds, by the timeout above — and the default executor is also what
+#: ``asyncio.to_thread`` uses, which in this process means the SQLite memory store. Sharing
+#: one pool means a handful of slow model calls starve every memory query in the server,
+#: and the symptom is "memory got slow when the model did", which is a miserable thing to
+#: diagnose. Bounded rather than unbounded for the usual reason: a queue is a better
+#: failure than a thread explosion.
+MODEL_POOL_SIZE = 8
+_MODEL_POOL: ThreadPoolExecutor | None = None
+
+
+def model_pool() -> ThreadPoolExecutor:
+    """The pool blocking providers are pumped on, created on first use."""
+    global _MODEL_POOL
+    if _MODEL_POOL is None:
+        _MODEL_POOL = ThreadPoolExecutor(max_workers=MODEL_POOL_SIZE, thread_name_prefix="robot-llm")
+    return _MODEL_POOL
 
 
 class LLMProvider(Protocol):
@@ -543,7 +564,7 @@ async def stream_sync(
         finally:
             loop.call_soon_threadsafe(_offer, queue, done)
 
-    loop.run_in_executor(None, pump)
+    loop.run_in_executor(model_pool(), pump)
     try:
         while True:
             item = await queue.get()

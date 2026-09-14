@@ -1,0 +1,84 @@
+# Development. One command, from a clean clone:
+#
+#   docker compose up                       # backend, with the dashboard on :8010
+#   docker compose --profile demo up        # backend + a simulated robot talking to it
+#
+# What this is not: the deployment file. That is main/nilo-server/docker-compose.yml, which
+# pulls a published image and mounts model weights. This one builds from the working tree
+# and mounts it, so an edit is a restart rather than a rebuild.
+#
+# No database service: the robot subsystem's only store is SQLite, in ./main/nilo-server/data.
+# Nothing here needs a model download, an API key or a GPU — with no language model
+# configured the robot connects, reports, obeys safety and runs its deterministic
+# behaviours, and says less (docs/robot-getting-started.md).
+services:
+  nilo-server:
+    build:
+      context: .
+      dockerfile: Dockerfile-server
+      args:
+        # The base image carries the Python dependencies. Build it once locally with
+        # `make docker-build`, or let this pull the published one.
+        BASE_IMAGE: ghcr.io/aa-box/nilo-server:base
+    image: nilo-server:dev
+    container_name: nilo-server-dev
+    environment:
+      TZ: UTC
+      NILO_SERVER_HOST: 0.0.0.0
+      NILO_SERVER_PORT: "8000"
+      NILO_HTTP_PORT: "8003"
+      NILO_LOG_LEVEL: INFO
+      # The management API listens on every interface *inside the container*; its control
+      # endpoints are still refused off loopback unless the variable below says otherwise,
+      # so publishing this port gives a browser the read-only dashboard and nothing more
+      # (docs/robot-api.md).
+      NILO_ROBOT_API_HOST: 0.0.0.0
+      NILO_ROBOT_API_PORT: "8010"
+      NILO_ROBOT_ADMIN_TOKEN_FILE: /run/secrets/nilo_admin_token
+    secrets:
+      - nilo_admin_token
+    ports:
+      - "8000:8000"   # WebSocket session server (/nilo/v1/)
+      - "8003:8003"   # HTTP: OTA bootstrap (/nilo/ota/) and /mcp/vision/explain
+      - "8010:8010"   # robot management API, dashboard, /metrics, /health, /ready
+    volumes:
+      # The working tree, so an edit needs a restart rather than a rebuild.
+      - ./main/nilo-server:/opt/nilo-server
+    healthcheck:
+      # Readiness, not liveness: this reports unhealthy while the robot runtime is closing,
+      # which is what a rolling deployment needs to see (docs/observability.md).
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8010/ready',timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  # A simulated robot, for `docker compose --profile demo up`. Connects over the same
+  # WebSocket a real device uses; nothing about the backend knows it is simulated.
+  nilo-simulator:
+    profiles: ["demo"]
+    image: nilo-server:dev
+    container_name: nilo-simulator
+    depends_on:
+      nilo-server:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+    volumes:
+      - ./main/nilo-server:/opt/nilo-server
+    command:
+      - python
+      - -m
+      - robot.simulator
+      - --server
+      - ws://nilo-server:8000/nilo/v1/
+      - --robot-id
+      - nilo-sim-01
+      - --scenario
+      - person_enters_room
+
+secrets:
+  nilo_admin_token:
+    # Create it once: `echo dev-token > secrets/nilo_admin_token`. Git-ignored, and never
+    # an environment variable in a shipped file (docs/configuration.md).
+    file: ./secrets/nilo_admin_token
