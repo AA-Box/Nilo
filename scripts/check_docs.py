@@ -100,6 +100,8 @@ RUNTIME_PATHS = {
     "main/nilo-server/data/animations",
     "main/nilo-server/data/robot_personality",
     "main/nilo-server/tmp",
+    # Written by `pytest tests/e2e`; kept by CI as an artifact, never committed.
+    "main/nilo-server/tmp/e2e-report.md",
     "data",
     "tmp",
 }
