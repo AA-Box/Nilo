@@ -17,13 +17,13 @@ label in front of it:
 | Agent | **Implemented** (as a chat agent, not yet as an embodied one) | `core/providers/llm/`, `core/providers/tools/`, `core/connection.py` |
 | Perception / Vision | **Implemented** | `robot/vision/` — snapshot pipeline, provider protocols, tracking with stable ids, normalized coordinates, face identity, latency metrics; see [robot-vision.md](robot-vision.md). The VLLM seam (`core/api/vision_handler.py`) is still the inherited one-shot explainer |
 | Perception / Sensors | **Planned** | `robot/state/models.py` types the sensor state; nothing produces it yet |
-| World Model | **Implemented** | `robot/state/` — per-robot state, plus `robot/state/world.py`: entities with confidence and a decay schedule, attention, interactions, environment; written from events by `robot/state/world_model.py`. See [robot-behavior.md](robot-behavior.md) |
+| World Model | **Implemented** | `robot/state/` — per-robot state, plus `robot/state/world.py`: entities with confidence and a decay schedule, attention, interactions, environment; written from events by `robot/state/world_model.py`. See [behavior-system.md](behavior-system.md) |
 | Memory (robot-scoped) | **Implemented** | `robot/memory/` — working, episodic, semantic and person memory over SQLite with migrations, optional embeddings, budgeted retrieval and provenance-tracked consolidation; see [robot-memory.md](robot-memory.md) |
-| Behavior Engine | **Implemented** | `robot/behavior/` — deterministic utility scoring, sixteen behaviours, four autonomy modes, no LLM anywhere in it; see [robot-behavior.md](robot-behavior.md) |
+| Behavior Engine | **Implemented** | `robot/behavior/` — deterministic utility scoring, sixteen behaviours, four autonomy modes, no LLM anywhere in it; see [behavior-system.md](behavior-system.md) |
 | Personality and internal state | **Implemented** | `robot/personality/` — six stable traits, seven decaying control variables, persisted per robot; see [robot-personality.md](robot-personality.md) |
 | Expressive animation | **Implemented** | `robot/animation/` — YAML animations, priority and resource ownership, transitions, the low-energy gate; see [robot-animation.md](robot-animation.md) |
 | Action Executor | **Implemented** | `robot/actions/` — ten semantic actions, the lifecycle, the queue and the resource ledger; see [robot-actions.md](robot-actions.md) |
-| Safety | **Implemented**, as a policy filter | `robot/safety/` — deterministic policy, configurable limits, emergency-stop latch, supervisory watchdog. Not a guarantee: [safety.md](safety.md) |
+| Safety | **Implemented**, as a policy filter | `robot/safety/` — deterministic policy, configurable limits, emergency-stop latch, supervisory watchdog. Not a guarantee: [safety-model.md](safety-model.md) |
 
 Concretely: `main/nilo-server/robot/` holds the protocol registry, the robot domain layer
 (`robot/state/`, `robot/events/`, `robot/devices/`), the simulator (`robot/simulator/`), the
@@ -37,7 +37,7 @@ purpose: `scripts/check_docs.py` fails the build when a backticked repository pa
 exist, and these do not exist yet.
 
 Phases and acceptance criteria live in [robot-roadmap.md](robot-roadmap.md); the safety
-policy is [safety.md](safety.md); the wire format is [protocol.md](protocol.md) and the
+policy is [safety-model.md](safety-model.md); the wire format is [protocol.md](protocol.md) and the
 tool channel it rides on is [mcp.md](mcp.md).
 
 ---
@@ -271,7 +271,7 @@ thread, skipping every `finally`), can be stalled by a global collection pass
 (`core/utils/gc_manager.py` walks `gc.get_objects()` twice every 300 s), and has no way to
 cancel a command the device already accepted. Its watchdog therefore runs on its own thread,
 and that still does not make it authoritative. The guarantee lives in firmware: §3 and
-[safety.md](safety.md), which names each protection firmware must implement independently
+[safety-model.md](safety-model.md), which names each protection firmware must implement independently
 and what it does when this process dies.
 
 ### 2.10 Device Protocol — **Implemented**
@@ -548,7 +548,7 @@ re-verified against the current tree.
 | R8 | **A flat tool namespace lets device tools shadow server tools.** Collisions log a warning; the later executor wins, and device MCP is registered after server plugins | `core/providers/tools/unified_tool_manager.py`, `unified_tool_handler.py` | Namespace every robot tool and assert at session start that no device tool collides |
 | R9 | **The LLM-based intent provider freezes its tool list process-wide.** It caches its rendered prompt on a process-wide singleton with an "if empty" guard | `core/providers/intent/intent_llm/intent_llm.py` | The first robot's capabilities would be offered to every later robot. Use function-call intent, never the LLM intent provider |
 | R10 | **JSON-RPC id collision on the device MCP channel.** `MCPClient.next_id` starts at 1 while the handshake uses ids 1 and 2 | `core/providers/tools/device_mcp/mcp_client.py`, `mcp_handler.py` | A paginated `tools/list` continuation can resolve a tool call's future with a tool list. A motion command can "succeed" with garbage. Trap: `MCPClient` is defined twice; `mcp_handler.py`'s copy is dead code |
-| R11 | **The OTA endpoint mints WebSocket tokens without authenticating the requester.** `OTAHandler.handle_post` issues a token for any device-id/client-id pair | `core/api/ota_handler.py` | **An authenticated WebSocket connection must never by itself authorise actuation.** Actuation needs its own authorisation ([safety.md](safety.md)) |
+| R11 | **The OTA endpoint mints WebSocket tokens without authenticating the requester.** `OTAHandler.handle_post` issues a token for any device-id/client-id pair | `core/api/ota_handler.py` | **An authenticated WebSocket connection must never by itself authorise actuation.** Actuation needs its own authorisation ([safety-model.md](safety-model.md)) |
 | R12 | **Smaller things that still shape the design** — see below | | |
 
 R12 in detail:
@@ -729,12 +729,12 @@ Stated so that nothing here is an undocumented assumption.
 
 [robot-domain.md](robot-domain.md) — the domain layer that is implemented ·
 [robot-actions.md](robot-actions.md) — the action and safety layers, as implemented ·
-[robot-behavior.md](robot-behavior.md) — the world model and the behaviour engine ·
+[behavior-system.md](behavior-system.md) — the world model and the behaviour engine ·
 [robot-personality.md](robot-personality.md) — traits, control variables and what they may influence ·
 [robot-animation.md](robot-animation.md) — writing an animation without writing Python ·
 [robot-vision.md](robot-vision.md) — the perception pipeline, tracking and follow ·
 [robot-memory.md](robot-memory.md) — the four memory stores, retrieval and the admin API ·
-[safety.md](safety.md) — the safety split, and what firmware must implement itself ·
+[safety-model.md](safety-model.md) — the safety split, and what firmware must implement itself ·
 [protocol.md](protocol.md) — the device wire protocol and the route registry ·
 [mcp.md](mcp.md) — the tool channel robot commands ride on ·
 [robot-roadmap.md](robot-roadmap.md) — phases and acceptance criteria ·

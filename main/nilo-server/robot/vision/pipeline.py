@@ -417,8 +417,13 @@ class McpFrameSource:
     what the firmware contract specifies (docs/mcp.md).
     """
 
-    #: The device tool a capture goes to. The same name the action layer dispatches to.
-    TOOL = "robot.camera.capture"
+    #: The tool a capture goes to, spelled the way the **server** keys it. The device
+    #: publishes ``robot.camera.capture``; discovery sanitizes the dots away and every
+    #: capability lookup and dispatch uses the sanitized name
+    #: (``robot/actions/model.py``, ``CaptureImageAction.tool_name``). Spelled out rather
+    #: than imported: ``robot/vision`` may not import the action layer, because a module
+    #: that can see an action spec is one refactor away from submitting one.
+    TOOL = "robot_camera_capture"
 
     def __init__(self, call_tool: Any, *, tool: str = TOOL, timeout_s: float = 5.0) -> None:
         self._call_tool = call_tool

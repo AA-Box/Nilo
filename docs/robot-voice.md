@@ -183,4 +183,4 @@ the face not twitching on every transition.
 [audio.md](audio.md) — the inherited audio pipeline this sits inside ·
 [robot-agent.md](robot-agent.md) — the agent the loop drives ·
 [robot-animation.md](robot-animation.md) — where the animations come from ·
-[safety.md](safety.md) — what the backend can and cannot promise
+[safety-model.md](safety-model.md) — what the backend can and cannot promise

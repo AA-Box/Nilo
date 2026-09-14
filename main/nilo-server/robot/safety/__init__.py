@@ -16,7 +16,7 @@ stop, and supervises deadlines so an action that never reports back is marked
 thermal protection, physical motion bounds, acceleration constraints and the local
 emergency stop are implemented again, independently, on the robot — because this process
 can be killed mid-motion, its event loop can stall for an unbounded time, and a command
-the device has already accepted cannot be recalled from here. docs/safety.md states which
+the device has already accepted cannot be recalled from here. docs/safety-model.md states which
 protection lives where and what each one does when the Python process dies.
 
 Layering (docs/robot-architecture.md Sect. 7): this package imports ``robot/state`` and

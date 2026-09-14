@@ -118,7 +118,7 @@ class RobotControl:
         """The semantic handle, attributed to a person rather than to a model.
 
         Attribution only — a different source does not buy a different answer from safety
-        (docs/safety.md). It is what makes an incident log say an operator asked for this.
+        (docs/safety-model.md). It is what makes an incident log say an operator asked for this.
         """
         return self.runtime.actions.robot(self.robot_id).as_source(ActionSource.USER)
 
@@ -186,7 +186,7 @@ class RobotControl:
         """Latch the robot: cancel everything, refuse everything, attempt a stop.
 
         A request, not a guarantee. The stop this sends may never arrive; the firmware
-        watchdog is what actually stops a robot (docs/safety.md). Say so in the response
+        watchdog is what actually stops a robot (docs/safety-model.md). Say so in the response
         rather than reporting success the backend cannot promise.
         """
         record = await self.runtime.actions.emergency_stop(

@@ -23,7 +23,7 @@ This API **can** move a robot, which is a change from the phase in which it deli
 could not. What has not changed is where the decision is made: a control request becomes a
 typed action submitted to the same executor and judged by the same safety policy as a
 behaviour's own command. There is no privileged path, and a stop this API sends is a
-request the firmware watchdog backs rather than a guarantee (docs/safety.md).
+request the firmware watchdog backs rather than a guarantee (docs/safety-model.md).
 """
 
 from robot.api.security import (

@@ -7,7 +7,7 @@ between animations that want the same part of the robot, and leaves the face som
 sensible when it ends. Adding one is adding a file; there is no registration call, no
 import to edit, and no place to put a hardcoded `sleep`.
 
-Related: [robot-behavior.md](robot-behavior.md) (what decides to play one),
+Related: [behavior-system.md](behavior-system.md) (what decides to play one),
 [robot-personality.md](robot-personality.md) (what suppresses an energetic one),
 [robot-actions.md](robot-actions.md) (the commands a step turns into).
 

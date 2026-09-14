@@ -33,7 +33,7 @@ server rather than as a preference:
 * **The watchdog runs off this event loop.** See :mod:`robot.safety.watchdog`.
 
 What it still is not: a guarantee. A stop this executor sends is a request that may never
-arrive. The firmware watchdog is what actually stops the robot (docs/safety.md).
+arrive. The firmware watchdog is what actually stops the robot (docs/safety-model.md).
 """
 
 from __future__ import annotations
@@ -53,6 +53,7 @@ from robot.actions.model import (
     RobotAction,
     StopAction,
 )
+from robot.correlation import correlate
 from robot.actions.queue import ResourceConflict, RobotActionQueue
 from robot.actions.registry import RobotActionRegistry
 from robot.events.bus import EventBus
@@ -455,7 +456,16 @@ class RobotActionExecutor:
         return True
 
     async def _dispatch(self, action: RobotAction) -> None:
-        """One device call, with an explicit short timeout, off the pump."""
+        """One device call, with an explicit short timeout, off the pump.
+
+        Runs under the action's own trace: this coroutine is a task the pump spawned, so
+        the context it inherits is the pump's, not the caller's, and without this the
+        device call would break the chain from the utterance that asked for it.
+        """
+        with correlate(action.correlation_id):
+            await self._dispatch_traced(action)
+
+    async def _dispatch_traced(self, action: RobotAction) -> None:
         await self._publish(ActionStarted(robot_id=action.robot_id, action=action.record()))
         try:
             raw = await self._runtime.call_tool(
@@ -562,7 +572,10 @@ class RobotActionExecutor:
         self._queue.release(action)
         self._queue.remove(action.action_id)
         self._registry.retire(action)
-        await self._publish(ActionFinished(robot_id=action.robot_id, action=record))
+        # The completion may be arriving on the read loop, the watchdog's hand-off or a
+        # disconnect handler; the trace it belongs to is the action's, not the caller's.
+        with correlate(action.correlation_id):
+            await self._publish(ActionFinished(robot_id=action.robot_id, action=record))
         self._wake.set()
         return record
 
@@ -581,7 +594,8 @@ class RobotActionExecutor:
             decision.reason.value,
             decision.message,
         )
-        await self._publish(ActionFinished(robot_id=action.robot_id, action=record))
+        with correlate(action.correlation_id):
+            await self._publish(ActionFinished(robot_id=action.robot_id, action=record))
         return record
 
     # -- device feedback ------------------------------------------------------------------------------
@@ -616,11 +630,15 @@ class RobotActionExecutor:
 
         The stop attempt is expected to fail — the socket is gone, which is why the
         cancellation happens regardless of whether it succeeds. What stops the robot is
-        the firmware watchdog noticing the same silence (docs/safety.md).
+        the firmware watchdog noticing the same silence (docs/safety-model.md).
         """
         cancelled = await self.cancel_all(
             event.robot_id, reason=f"the robot disconnected ({event.reason.value})", stop=False
         )
+        # The rate-limit window is per robot and nothing else drops it. One deque per robot
+        # that ever connected is a small leak, but it is a leak, and a process that is up
+        # for months sees every robot the household ever had.
+        self._motion_window.pop(event.robot_id, None)
         if cancelled:
             logger.warning(
                 "robot %s disconnected: %d action(s) cancelled; a stop cannot be delivered over a "

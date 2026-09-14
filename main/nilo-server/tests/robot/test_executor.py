@@ -521,7 +521,7 @@ async def test_a_stop_bypasses_the_queue_entirely(executor, runtime) -> None:
 
 async def test_a_stop_is_accepted_with_a_cliff_asserted(executor, runtime) -> None:
     """A robot that will not stop because a sensor says it is unsafe to move is the wrong
-    failure (docs/safety.md, "Emergency stop", rule 1)."""
+    failure (docs/safety-model.md, "Emergency stop", rule 1)."""
     runtime.set_state(robot_state(sensors=RobotSensorState(cliff_detected=True)))
     stop = await executor.submit(StopAction(), ROBOT_ID, source=ActionSource.LLM)
     await settle(runtime)
@@ -827,7 +827,7 @@ async def test_the_executor_starts_itself_on_first_use(runtime) -> None:
 
 async def test_closing_does_not_pretend_to_stop_the_robots(runtime) -> None:
     """Teardown runs when the process is going away; a stop from a dying process is the
-    hope this design refuses to rely on (docs/safety.md)."""
+    hope this design refuses to rely on (docs/safety-model.md)."""
     executor = RobotActionExecutor(runtime, watchdog=Watchdog(interval_s=60.0), start_watchdog=False)
     await executor.start()
     await executor.submit(MoveAction(distance_mm=800), ROBOT_ID)

@@ -44,6 +44,27 @@ ENV_VARS = {
     "NILO_ROBOT_API_HOST",
     "NILO_ROBOT_API_PORT",
     "NILO_ROBOT_API_ALLOW_REMOTE_CONTROL",
+    # A mounted secret rather than an exported variable, for a container deployment.
+    "NILO_ROBOT_ADMIN_TOKEN_FILE",
+    # The robot subsystem's own configuration (robot/config.py). The file is one document;
+    # these are the overrides on top of it, and the prefix is `NILO_ROBOT_<SECTION>_<FIELD>`
+    # with the `robot` section addressable without repeating itself.
+    "NILO_ROBOT_CONFIG",
+    "NILO_ROBOT_AUTONOMY",
+    "NILO_ROBOT_AUTOSTART_BEHAVIORS",
+    "NILO_ROBOT_BEHAVIOR_INTERVAL_S",
+    "NILO_ROBOT_DISCOVERY_TIMEOUT_S",
+    "NILO_ROBOT_ANIMATION_DIR",
+    "NILO_ROBOT_MEMORY_ENABLED",
+    "NILO_ROBOT_MEMORY_PATH",
+    "NILO_ROBOT_MEMORY_CONSOLIDATION_INTERVAL_S",
+    "NILO_ROBOT_VISION_ENABLED",
+    "NILO_ROBOT_VISION_INTERVAL_S",
+    "NILO_ROBOT_VISION_DETECTOR",
+    "NILO_ROBOT_VISION_MODEL_PATH",
+    "NILO_ROBOT_SAFETY_MAX_SPEED_MMPS",
+    "NILO_ROBOT_SAFETY_MAX_DISTANCE_MM",
+    "NILO_ROBOT_PERSONALITY_STORE_DIR",
 }
 
 # Paths the documentation names as *planned* (docs/robot-roadmap.md). They must not exist yet:
@@ -79,6 +100,8 @@ RUNTIME_PATHS = {
     "main/nilo-server/data/animations",
     "main/nilo-server/data/robot_personality",
     "main/nilo-server/tmp",
+    # Written by `pytest tests/e2e`; kept by CI as an artifact, never committed.
+    "main/nilo-server/tmp/e2e-report.md",
     "data",
     "tmp",
 }

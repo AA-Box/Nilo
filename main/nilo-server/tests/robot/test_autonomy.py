@@ -2,7 +2,7 @@
 
 The mode table is the containment boundary of the whole engine, so it is asserted
 exhaustively: for each of the four modes, every built-in behaviour is checked against what
-that mode is documented to permit (docs/robot-behavior.md).
+that mode is documented to permit (docs/behavior-system.md).
 """
 from __future__ import annotations
 

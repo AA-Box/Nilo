@@ -257,8 +257,16 @@ class SpeechArbiter:
             logger.warning("robot %s: publishing %s failed: %s", self.robot_id, type(event).__name__, exc)
 
     def _cooling_down(self, intent: SpeakIntent) -> str | None:
-        """Whether this reason spoke too recently. Safety is never cooled down."""
-        if intent.priority is SpeechPriority.SAFETY or self.reason_cooldown_s <= 0:
+        """Whether this reason spoke too recently.
+
+        The cooldown exists to stop the robot repeating *itself* — a greeting, a low
+        battery warning, a remark it decided to make. It has never been meant to apply to
+        answering a person, and applying it there is a robot that ignores the second thing
+        you say to it inside twenty seconds (``robot/voice/loop.py``, ``ANSWER_REASON``).
+        So everything at or above :attr:`SpeechPriority.USER_RESPONSE` is exempt, which
+        covers both a direct answer and a safety announcement.
+        """
+        if intent.priority >= SpeechPriority.USER_RESPONSE or self.reason_cooldown_s <= 0:
             return None
         last = self._last_spoken.get(intent.reason)
         if last is None:

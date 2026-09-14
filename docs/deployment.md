@@ -161,9 +161,41 @@ docker run -d --name nilo-server \
   ghcr.io/aa-box/nilo-server:latest
 ```
 
+## Option 0: `docker compose up`, for development
+
+The Compose file at the **repository root** is the development one. From a clean clone:
+
+```bash
+echo "$(openssl rand -hex 32)" > secrets/nilo_admin_token   # git-ignored
+docker compose up                       # backend, dashboard on http://127.0.0.1:8010/
+docker compose --profile demo up        # ...and a simulated robot talking to it
+```
+
+It builds from the working tree and mounts it, so an edit is a restart rather than a
+rebuild. There is **no database service**: the robot subsystem's only store is SQLite under
+`main/nilo-server/data`, and a Postgres nobody uses is a Postgres somebody maintains. There
+is no model download, no API key and no GPU — with no language model configured the robot
+connects, reports telemetry, obeys safety and runs its deterministic behaviours, and says
+less ([robot-getting-started.md](robot-getting-started.md)).
+
+Two services:
+
+| Service | Profile | What it is |
+|---|---|---|
+| `nilo-server` | default | the backend, with a readiness healthcheck on `/ready` |
+| `nilo-simulator` | `demo` | a simulated robot, over the same WebSocket a real device uses |
+
+The admin token is a **mounted secret**, not an environment variable: a token in
+`environment:` is a token in `docker inspect`, in `ps` and in a crash dump. Nothing else in
+the robot subsystem is a secret.
+
+Kubernetes is not required and no manifests are shipped. `/health` and `/ready` are the two
+probes an orchestrator needs if you write your own ([observability.md](observability.md)).
+
 ## Option 3: Docker Compose
 
-`main/nilo-server/docker-compose.yml` defines one service, `nilo-server`:
+`main/nilo-server/docker-compose.yml` is the *deployment* file — a published image, mounted
+model weights, and `restart: always`. It defines one service, `nilo-server`:
 
 | Field | Value |
 |---|---|
@@ -174,11 +206,14 @@ docker run -d --name nilo-server \
 | `ports` | `8000:8000` (WebSocket), `8003:8003` (HTTP) |
 | `environment` | `TZ=UTC`, `NILO_SERVER_HOST=0.0.0.0`, `NILO_SERVER_PORT=8000`, `NILO_HTTP_PORT=8003`, `NILO_LOG_LEVEL=INFO` |
 | `volumes` | `./data:/opt/nilo-server/data`, `./models/SenseVoiceSmall/model.pt:/opt/nilo-server/models/SenseVoiceSmall/model.pt` |
+| `secrets` | `nilo_admin_token`, read from `./secrets/nilo_admin_token` |
+| `healthcheck` | `GET /ready` on the management API, inside the container |
 
 ```bash
 cp main/nilo-server/docker-compose.yml /srv/nilo/
-cd /srv/nilo && mkdir -p data models/SenseVoiceSmall
+cd /srv/nilo && mkdir -p data models/SenseVoiceSmall secrets
 # write data/.config.yaml, and place model.pt if you use the local FunASR ASR
+echo "$(openssl rand -hex 32)" > secrets/nilo_admin_token   # or the API refuses every route
 docker compose up -d
 docker compose logs -f
 ```
@@ -190,8 +225,10 @@ OTA response hands to devices is the separate `server.timezone_offset` config ke
 (`core/api/ota_handler.py:OTAHandler.handle_post`).
 
 Validate a modified file without starting anything: `make compose-validate`
-(`docker compose -f docker-compose.yml config --quiet`). CI runs the same check, and
-`tests/test_compose.py` asserts the service name, image, ports, `NILO_*` variables and data mount.
+(`docker compose -f docker-compose.yml config --quiet`). CI validates **both** files, and
+`tests/test_compose.py` asserts the service name, image, ports, `NILO_*` variables, the data
+mount, that the admin token is a mounted file rather than an environment variable, and that
+the development file needs no model weights.
 
 ## Configuring a real deployment
 
@@ -340,6 +377,41 @@ answer `404`, reports how an unknown WebSocket path is treated, and exits non-ze
 The OTA `GET` page is the fastest way to confirm that `server.websocket` resolves to an address your
 devices can actually reach.
 
+### Health, readiness and metrics
+
+The robot management API serves the three endpoints an orchestrator and a scrape need. It
+runs on its own port (8010 by default), and the first two are the only unauthenticated
+routes on it:
+
+```bash
+curl -fsS http://<host>:8010/health     # liveness: the process is serving
+curl -fsS http://<host>:8010/ready      # readiness: 503 once the runtime is closed
+curl -fsS -H "Authorization: Bearer $NILO_ROBOT_ADMIN_TOKEN" http://<host>:8010/metrics
+```
+
+`/health` and `/ready` differ exactly once, and it is the case that matters: during
+shutdown the process is alive and the robot runtime is closed, so a rolling deployment
+should stop sending it traffic before it stops answering at all. Neither says anything
+about any individual robot, which is why neither needs a credential.
+
+`/metrics` is Prometheus text exposition and **is** authorized — the labels name tools,
+behaviours and disconnect reasons, which is operational detail about a household. Point a
+scraper at it with the admin token:
+
+```yaml
+scrape_configs:
+  - job_name: nilo
+    authorization:
+      credentials_file: /run/secrets/nilo-robot-admin-token
+    static_configs:
+      - targets: ['nilo-server:8010']
+```
+
+What each metric means, and the three whose obvious reading is wrong:
+[observability.md](observability.md).
+
 Related pages: [getting-started.md](getting-started.md) for a first local run,
+[robot-getting-started.md](robot-getting-started.md) for a first robot,
 [configuration.md](configuration.md) for the full key reference, [protocol.md](protocol.md) for the
-device-facing routes and messages, and [testing.md](testing.md) for what CI checks.
+device-facing routes and messages, [observability.md](observability.md) for metrics and tracing,
+and [testing.md](testing.md) for what CI checks.

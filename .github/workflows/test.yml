@@ -70,10 +70,41 @@ jobs:
       - name: Run tests
         run: pytest -q
 
+  e2e:
+    name: End-to-end scenarios
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'main/nilo-server/requirements*.txt'
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libopus0 ffmpeg
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Run the scenarios
+        # Deterministic by construction: local fakes for ASR, TTS, LLM and vision, and an
+        # accelerated simulated clock. No network, no model download, no cloud account.
+        run: pytest tests/e2e -q
+      - name: Upload the state-transition report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: main/nilo-server/tmp/e2e-report.md
+          if-no-files-found: warn
+
   docker:
     name: Docker Compose validates
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: docker compose config
+      - name: Deployment compose
+        run: docker compose -f docker-compose.yml config --quiet
+      - name: Development compose
+        working-directory: .
         run: docker compose -f docker-compose.yml config --quiet

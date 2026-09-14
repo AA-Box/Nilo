@@ -469,7 +469,7 @@ prints the robot's own state. Full reference, including scenarios and failure in
 * [development.md](development.md) and [testing.md](testing.md) — layout, conventions, the suite
 * [robot-simulator.md](robot-simulator.md) — the simulated robot, scenarios and failure injection
 * [robot-domain.md](robot-domain.md) — the robot layers that run today
-* [robot-architecture.md](robot-architecture.md), [safety.md](safety.md),
+* [robot-architecture.md](robot-architecture.md), [safety-model.md](safety-model.md),
   [robot-roadmap.md](robot-roadmap.md) — the planned robot layers
 * [upstream.md](upstream.md), [migration.md](migration.md), [branding.md](branding.md) — provenance
   and naming rules

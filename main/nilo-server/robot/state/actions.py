@@ -147,7 +147,7 @@ MOTION_ACTIONS: frozenset[ActionType] = frozenset(
 class ActionSource(str, Enum):
     """Who asked. Recorded on every action so an incident log says where a motion came from.
 
-    The source never widens what safety permits (docs/safety.md): a rejection is a
+    The source never widens what safety permits (docs/safety-model.md): a rejection is a
     rejection whether the LLM, a behaviour or an operator asked. It narrows in exactly one
     direction — :attr:`SAFETY` may command a stop while the emergency stop is engaged,
     because that is the layer doing the stopping.
@@ -256,6 +256,10 @@ class ActionRecord(BaseModel):
     device_action_id: str | None = None
     result: dict[str, Any] | None = None
     error: ActionError | None = None
+    #: The trace this action belongs to. Set from the ambient context when the action is
+    #: created and carried through dispatch and completion, which is what links a device
+    #: response back to the utterance that caused it (``robot/correlation.py``).
+    correlation_id: str = ""
 
     @property
     def is_terminal(self) -> bool:

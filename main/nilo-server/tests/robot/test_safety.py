@@ -10,7 +10,7 @@ latch is engaged — is tested explicitly rather than assumed.
 
 **A limit breach is a rejection, not a clamp.** ``policy.evaluate`` never returns an
 adjusted request. A move beyond the ceiling comes back ``REJECTED`` with the number that
-failed, so the bug that produced it is visible (docs/safety.md).
+failed, so the bug that produced it is visible (docs/safety-model.md).
 
 Nothing here needs an event loop: the policy is a pure function.
 """

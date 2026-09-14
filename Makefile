@@ -1,10 +1,11 @@
-.PHONY: help test lint typecheck check-docs run simulator compose-validate docker-build smoke
+.PHONY: help test e2e lint typecheck check-docs run simulator compose-validate docker-build smoke
 
 SERVER := main/nilo-server
 PY ?= python
 
 help:
 	@echo "make test             - pytest in $(SERVER) (works with requirements-dev.txt alone)"
+	@echo "make e2e              - the ten end-to-end scenarios; writes $(SERVER)/tmp/e2e-report.md"
 	@echo "make lint             - ruff check"
 	@echo "make typecheck        - mypy on $(SERVER)/robot"
 	@echo "make check-docs       - validate docs links, paths, env vars and branding"
@@ -16,6 +17,10 @@ help:
 
 test:
 	cd $(SERVER) && $(PY) -m pytest -q
+
+e2e:
+	cd $(SERVER) && $(PY) -m pytest tests/e2e -q
+	@echo "report: $(SERVER)/tmp/e2e-report.md"
 
 lint:
 	cd $(SERVER) && ruff check .

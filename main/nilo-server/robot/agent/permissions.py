@@ -20,7 +20,7 @@ configuration that will:
 * **Stop is always allowed.** A robot that will not stop because its autonomy mode is
   ``OFF`` is the wrong failure, the same reasoning as
   :class:`~robot.actions.model.StopAction` never being refused for a hazard
-  (docs/safety.md).
+  (docs/safety-model.md).
 * **A permit is not a safety decision.** Everything a tool is permitted to do still goes
   through the action layer and its safety policy. This module can only take capability
   away; it can never grant any (docs/robot-architecture.md Sect. 3).

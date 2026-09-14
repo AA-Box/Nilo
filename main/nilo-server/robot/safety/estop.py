@@ -1,6 +1,6 @@
 """The emergency-stop latch.
 
-Three rules, from docs/safety.md, and the code exists to make them literal:
+Three rules, from docs/safety-model.md, and the code exists to make them literal:
 
 1. **Stop is always accepted.** Engaging is never gated on queue state, capability
    negotiation, or whether anything is running.

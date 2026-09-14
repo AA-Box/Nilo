@@ -51,6 +51,11 @@ logger = logging.getLogger(__name__)
 #: Where the memory database lives when no path is given, relative to the server directory.
 DEFAULT_DB_PATH = Path("data") / "robot_memory.sqlite3"
 
+#: How long a statement waits for another process holding the database, in seconds. The
+#: management API and the server are two readers of one file in the normal deployment;
+#: this is the bound on how long either blocks before it reports a failure instead.
+BUSY_TIMEOUT_S = 5.0
+
 #: ``:memory:`` is a real SQLite path and the right one for a test.
 IN_MEMORY = ":memory:"
 
@@ -281,7 +286,9 @@ class SqliteMemoryStore(MemoryStore):
         await asyncio.to_thread(self._migrate, connection)
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, check_same_thread=False)
+        # `timeout` is how long a statement waits for another *process* to release the
+        # database before raising; the lock above is what serializes this one.
+        connection = sqlite3.connect(self.path, check_same_thread=False, timeout=BUSY_TIMEOUT_S)
         connection.row_factory = sqlite3.Row
         # WAL so a reader (the API) and a writer (the robot) do not block each other;
         # foreign keys on so a future schema can rely on them.
@@ -396,7 +403,7 @@ class SqliteMemoryStore(MemoryStore):
         async with self._lock:
             existing = await self._get_fact_unlocked(fact.robot_id, fact.subject, fact.predicate)
             merged = fact if existing is None else merge_fact(existing, fact)
-            await self._execute(
+            await self._execute_unlocked(
                 """
                 INSERT INTO facts
                     (id, robot_id, subject, predicate, value, confidence, learned_from,
@@ -432,7 +439,7 @@ class SqliteMemoryStore(MemoryStore):
         return await self._get_fact_unlocked(robot_id, subject, predicate)
 
     async def _get_fact_unlocked(self, robot_id: str, subject: str, predicate: str) -> SemanticFact | None:
-        rows = await self._query(
+        rows = await self._query_unlocked(
             "SELECT * FROM facts WHERE robot_id = ? AND subject = ? AND predicate = ?",
             (robot_id, subject, predicate),
         )
@@ -498,25 +505,29 @@ class SqliteMemoryStore(MemoryStore):
         return [_person(row) for row in rows]
 
     async def delete_person(self, robot_id: str, person_id: str) -> int:
-        removed = 0
-        removed += await self._execute(
-            "DELETE FROM people WHERE robot_id = ? AND person_id = ?", (robot_id, person_id)
+        """Forget one person everywhere, in one transaction.
+
+        All three statements or none. A deletion that removed the person record and then
+        failed before the episodes would leave a robot that has forgotten who somebody is
+        and still remembers what they said, which is the worst of both answers to a request
+        to be forgotten (docs/robot-memory.md).
+        """
+        return await self._transaction(
+            ("DELETE FROM people WHERE robot_id = ? AND person_id = ?", (robot_id, person_id)),
+            ("DELETE FROM episodes WHERE robot_id = ? AND person_id = ?", (robot_id, person_id)),
+            ("DELETE FROM facts WHERE robot_id = ? AND subject = ?", (robot_id, person_id)),
         )
-        removed += await self._execute(
-            "DELETE FROM episodes WHERE robot_id = ? AND person_id = ?", (robot_id, person_id)
-        )
-        removed += await self._execute(
-            "DELETE FROM facts WHERE robot_id = ? AND subject = ?", (robot_id, person_id)
-        )
-        return removed
 
     # -- whole-robot -------------------------------------------------------------------------
 
     async def clear_robot(self, robot_id: str) -> int:
-        removed = 0
-        for table in ("episodes", "facts", "people"):
-            removed += await self._execute(f"DELETE FROM {table} WHERE robot_id = ?", (robot_id,))
-        return removed
+        """Forget a whole robot, in one transaction, for the same reason."""
+        return await self._transaction(
+            *(
+                (f"DELETE FROM {table} WHERE robot_id = ?", (robot_id,))
+                for table in ("episodes", "facts", "people")
+            )
+        )
 
     async def counts(self, robot_id: str) -> dict[str, int]:
         counts: dict[str, int] = {}
@@ -539,10 +550,40 @@ class SqliteMemoryStore(MemoryStore):
         return self._connection
 
     async def _query(self, sql: str, args: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
+        async with self._lock:
+            return await self._query_unlocked(sql, args)
+
+    async def _execute(self, sql: str, args: tuple[Any, ...] = ()) -> int:
+        async with self._lock:
+            return await self._execute_unlocked(sql, args)
+
+    async def _transaction(self, *statements: tuple[str, tuple[Any, ...]]) -> int:
+        """Several statements, one transaction, one lock. Returns the rows affected."""
+        async with self._lock:
+            connection = self._require()
+
+            def run() -> int:
+                affected = 0
+                with connection:
+                    for sql, args in statements:
+                        affected += int(connection.execute(sql, args).rowcount)
+                return affected
+
+            return await asyncio.to_thread(run)
+
+    async def _query_unlocked(self, sql: str, args: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
         connection = self._require()
         return await asyncio.to_thread(lambda: connection.execute(sql, args).fetchall())
 
-    async def _execute(self, sql: str, args: tuple[Any, ...] = ()) -> int:
+    async def _execute_unlocked(self, sql: str, args: tuple[Any, ...] = ()) -> int:
+        """One statement in its own transaction. **Call under the lock.**
+
+        ``with connection:`` commits or rolls back the *connection's* transaction, and the
+        connection is shared. Two of these running concurrently on different threads would
+        each commit whatever the other had half-written, and an exception in one would roll
+        back the other's work. The lock is what makes "one statement, one transaction"
+        true rather than aspirational.
+        """
         connection = self._require()
 
         def run() -> int:

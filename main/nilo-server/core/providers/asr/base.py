@@ -164,6 +164,9 @@ class ASRProviderBase(ABC):
             self.stop_ws_connection()
 
             if text_len > 0:
+                # Nilo robot seam: the only measurement of recognition latency in the
+                # process. Read by robot/voice/seam.py; harmless for every other session.
+                conn.nilo_asr_latency_ms = total_time * 1000.0
                 audio_snapshot = asr_audio_task.copy()
                 enqueue_asr_report(conn, enhanced_text, audio_snapshot)
                 # Hand off to the chat pipeline

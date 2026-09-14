@@ -27,7 +27,7 @@ turn.refusals        # () — or the typed reason safety gave
 
 | The agent owns | It does not own | Where that lives |
 |---|---|---|
-| conversation | PID loops, raw motors | firmware ([safety.md](safety.md)) |
+| conversation | PID loops, raw motors | firmware ([safety-model.md](safety-model.md)) |
 | semantic interpretation | the safety policy | `main/nilo-server/robot/safety/` |
 | high-level planning | behaviour scheduling | `main/nilo-server/robot/behavior/` |
 | tool selection | vision tracking loops | `main/nilo-server/robot/vision/` |
@@ -126,7 +126,7 @@ configuration that will:
 
 * **`robot.stop` is always allowed.** A robot that will not stop because its autonomy mode
   is `OFF` is the wrong failure — the same reasoning that makes `StopAction` the one action
-  never refused for a hazard ([safety.md](safety.md)).
+  never refused for a hazard ([safety-model.md](safety-model.md)).
 * **A permit is not a safety decision.** Everything the policy allows still goes through
   the action layer and its safety policy. This module can only take capability away.
 
@@ -259,5 +259,5 @@ and behaviour-triggered speech.
 
 [robot-architecture.md](robot-architecture.md) — where robot code goes and the safety rule ·
 [robot-actions.md](robot-actions.md) — the action layer the tools submit to ·
-[safety.md](safety.md) — what the backend can and cannot promise ·
+[safety-model.md](safety-model.md) — what the backend can and cannot promise ·
 [robot-memory.md](robot-memory.md) — what `robot.remember` and `robot.recall` write to

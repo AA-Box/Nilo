@@ -20,12 +20,13 @@ stated otherwise.
 ```bash
 cd main/nilo-server
 pip install -r requirements-dev.txt     # tooling + the small runtime slice the tests import
-pytest -q                               # 113 passed, 6 skipped on this slice
+pytest -q                               # 1283 passed, 11 skipped on this slice
 ```
 
 | Command | Where | What it does |
 |---|---|---|
 | `pytest -q` | `main/nilo-server` | Runs the whole suite |
+| `make e2e` | repository root | The ten end-to-end scenarios, and writes `main/nilo-server/tmp/e2e-report.md` |
 | `make test` | repository root | `cd main/nilo-server && python -m pytest -q`; override the interpreter with `make test PY=.venv/bin/python` |
 | `pytest -q tests/robot` | `main/nilo-server` | One directory |
 | `pytest -q tests/robot/test_protocol.py` | `main/nilo-server` | One file |
@@ -79,6 +80,46 @@ in [robot-architecture.md](robot-architecture.md) and [robot-roadmap.md](robot-r
 [robot-simulator.md](robot-simulator.md).
 What the robot tests do cover is described in [robot-domain.md](robot-domain.md).
 
+## The end-to-end suite
+
+`tests/e2e/` is the newest of the three levels and the only one that starts at "a person
+said something" and ends at "the device moved". It runs the real WebSocket server in
+process, the real session handler, the real device MCP channel and the real simulator over
+a real socket; what it replaces is exactly four things, each at a seam the production code
+already has:
+
+| Faked | How | What stays real |
+| :--- | :--- | :--- |
+| ASR | the simulator sends the recognizer's output as a `listen`/`detect` frame | everything the server does with the text |
+| TTS | `tests/e2e/fakes.py:FakeTTS` at the `conn.tts` seam | the speech arbiter, the sink, the audio state machine, the `tts` frames the device sees |
+| LLM | `tests/e2e/fakes.py:RuleBasedLLM`, the same protocol every inherited provider satisfies | the agent, its tools, its permissions, its context |
+| vision | `robot/vision/providers.py:ColourBlobDetector`, which reads the pixels the simulator's camera rendered | capture over device MCP, decoding, tracking, the world fold |
+
+Ten scenarios, one per file section, each recording every state transition the system
+published while it ran:
+
+| Scenario | What it proves |
+| :--- | :--- |
+| A — startup | connect, authenticate, MCP, discovery, registration, telemetry, world state |
+| B — conversation | utterance in, answer out, one speech path, the face follows |
+| C — voice-commanded movement | "come a little closer" → model → safety → executor → device → completion → reply |
+| D — autonomous greeting | a person appears, vision sees them, `greet_person` wins once, the cooldown holds |
+| E — boredom | idle time on a controlled clock, `bored` wins, and it claims the display only |
+| F — cliff protection | the device stops itself, the action fails with its reason, and the model cannot override it |
+| G — low battery | `go_to_charger` outranks the sociable behaviours on priority |
+| H — interruption | barge-in: speaking → interrupted → listening, and the next utterance is answered |
+| I — backend/LLM failure | with no model: connects, reports, obeys safety, runs deterministic behaviours |
+| J — reconnect | the link dies mid-move, the device stops itself, and the robot comes back with fresh capabilities |
+
+Two more files sit beside them: `tests/e2e/test_robustness.py` (connect/disconnect churn,
+leaked tasks, clean shutdown, malformed frames, duplicate responses, timeouts, stale
+telemetry, cancellation races) and `tests/e2e/test_observability.py` (metrics, correlation
+ids and the trace).
+
+The run writes `main/nilo-server/tmp/e2e-report.md` — every transition of all ten
+scenarios, with the correlation id — which CI keeps as an artifact. See
+[observability.md](observability.md).
+
 ## Dependency slices
 
 The suite is deliberately runnable against `requirements-dev.txt` alone, so a contributor working
@@ -86,8 +127,8 @@ on config, protocol or utility code never has to install `torch`, `funasr` or `m
 
 | Slice | Install | Result |
 |---|---|---|
-| Dev only | `pip install -r requirements-dev.txt` | 113 passed + 6 skipped — the tests needing the full runtime skip themselves |
-| Full | `pip install -r requirements.txt -r requirements-dev.txt` | 126 passed |
+| Dev only | `pip install -r requirements-dev.txt` | 1283 passed + 11 skipped — the tests needing the full runtime skip themselves |
+| Full | `pip install -r requirements.txt -r requirements-dev.txt` | 1429 passed |
 
 `requirements-dev.txt` pins the tooling (`pytest`, `pytest-asyncio`, `freezegun`, `ruff`, `mypy`,
 and `types-PyYAML` because `mypy` is strict over `robot/` and the scenario loader reads YAML)
@@ -103,6 +144,7 @@ missing, the whole module is reported as one skip and contributes no collected t
 | `tests/core/test_ws_path_gate.py` | `websockets`, `opuslib_next`, `numpy` |
 | `tests/plugins_func/test_loadplugins.py` | `opuslib_next`, `numpy` |
 | `tests/integration/conftest.py` | `websockets`, `opuslib_next`, `numpy` — the guard sits in the conftest, so the whole directory skips as one |
+| `tests/e2e/conftest.py` | the same three, for the same reason |
 
 `robot/simulator/` imports `websockets` lazily, inside the session, so
 `tests/robot/test_simulator.py` runs on the dev slice even though the simulator cannot connect
@@ -225,17 +267,20 @@ Three workflows live in `.github/workflows/`.
 
 Triggers on pushes to `main` and `develop` and on every pull request, with in-progress runs for the
 same ref cancelled. Every job runs on `ubuntu-latest` with `working-directory: main/nilo-server`;
-the three Python jobs pin Python 3.12 (the `docker` job needs no interpreter).
+the four Python jobs pin Python 3.12 (the `docker` job needs no interpreter).
 
 | Job | Installs | Runs |
 |---|---|---|
 | `lint` — "Lint and type-check" | `requirements-dev.txt` | `ruff check .`, `mypy`, then `python scripts/check_docs.py` (that step runs from the repository root) |
 | `test` — "Python 3.12, full dependencies" | `requirements.txt` then `requirements-dev.txt` (pip cache keyed on `requirements*.txt`) | `pytest -q` |
 | `test-dev-slice` — "Python 3.12, dev dependencies only" | `requirements-dev.txt` (pip cache keyed on `requirements-dev.txt`) | `pytest -q` — the heavy tests skip themselves |
+| `e2e` — "End-to-end scenarios" | `requirements.txt` then `requirements-dev.txt`, plus `libopus0` and `ffmpeg` | `pytest tests/e2e -q`, and uploads `tmp/e2e-report.md` as an artifact even when the job fails |
 | `docker` — "Docker Compose validates" | nothing | `docker compose -f docker-compose.yml config --quiet` |
 
 The `test` / `test-dev-slice` pair is what keeps the `importorskip` guards honest: a test that
-quietly grew a `torch` dependency fails the dev-slice job.
+quietly grew a `torch` dependency fails the dev-slice job. The `e2e` job runs the same
+scenarios a second time on purpose — they are already inside `pytest -q` — so that the
+state-transition report is produced and kept even when the rest of the suite is red.
 
 ### `build-base-image.yml` and `docker-image.yml`
 
@@ -283,13 +328,15 @@ two things a local run will not reproduce:
   a test, it is a bring-up procedure. This is also why "the backend stops the robot" is
   *never* asserted: the suite can prove a stop was dispatched and that the simulator obeyed
   it, and nothing more. The guarantee is the firmware watchdog, which no test in this
-  repository can exercise. See [safety.md](safety.md).
+  repository can exercise. See [safety-model.md](safety-model.md).
 * **The backend safety layer is tested; firmware safety is not.** `tests/robot/test_safety.py`
   proves what the *policy* refuses. It cannot prove a robot stops at a cliff — only that the
   server declined to ask it to move.
-* **No end-to-end audio test.** Nothing in the suite starts a server, streams Opus or exercises a
-  VAD → ASR → LLM → TTS turn. `scripts/smoke_check.py` gets as far as the `hello` exchange.
-  See [audio.md](audio.md).
+* **No end-to-end *audio* test.** `tests/e2e/` runs the whole turn — utterance, model,
+  tools, action, device, answer — but nothing in the suite streams Opus or exercises a real
+  VAD, recognizer or synthesizer. The four fakes are listed above, and each one is a place
+  the real thing could behave differently. `scripts/smoke_check.py` gets as far as the
+  `hello` exchange. See [audio.md](audio.md).
 * **No provider integration tests.** No test imports a vendor adapter under `core/providers/`:
   `tests/test_imports.py` never reaches them (no `__init__.py`, so `walk_packages` skips the
   directory), and only the provider base classes come along transitively when `core.connection`

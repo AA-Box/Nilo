@@ -7,7 +7,7 @@ Nilo is a voice/vision session backend that has grown a robot subsystem. Phases 
 landed: the domain layer, the registry and session seam, the simulator, and the action and
 safety layers ([robot-domain.md](robot-domain.md), [robot-simulator.md](robot-simulator.md),
 [robot-actions.md](robot-actions.md)), and so have the world model and the behaviour engine
-([robot-behavior.md](robot-behavior.md)), and personality, emotion and expressive animation
+([behavior-system.md](behavior-system.md)), and personality, emotion and expressive animation
 ([robot-personality.md](robot-personality.md), [robot-animation.md](robot-animation.md))
 robot vision ([robot-vision.md](robot-vision.md)), robot memory with its admin API
 ([robot-memory.md](robot-memory.md)), the LLM seam ([robot-agent.md](robot-agent.md)) and the
@@ -237,7 +237,7 @@ optional YAML file, the sticky emergency-stop latch, and a watchdog on its own t
 per-action deadlines plus a 500 ms supervisory sweep. `RobotRuntime.actions` and
 `runtime.robot(id)` expose it, and `robot/simulator/` grew the `robot.follow.target` tool and
 a `drop_motion_completion` fault so every behaviour above is testable without hardware.
-[safety.md](safety.md) was rewritten in the same change: its "Planned" half is now "Motion
+[safety-model.md](safety-model.md) was rewritten in the same change: its "Planned" half is now "Motion
 safety", with an explicit firmware contract naming what the robot must implement itself and
 what each protection does when the Python process dies.
 
@@ -294,7 +294,7 @@ layering table is enforced by `tests/robot/test_layering.py`, which parses every
   personality packages — `tests/robot/test_layering.py` asserts the whole §7 import table by
   parsing the source, and separately that `robot/safety` imports only `robot/state`. It is
   not yet also a lint rule; Phase 0.1 remains open.
-* **Done.** [safety.md](safety.md) is updated in the same change: which protections are
+* **Done.** [safety-model.md](safety-model.md) is updated in the same change: which protections are
   duplicated in firmware, which exist only in the backend, and the failure mode of each when
   the Python process dies. Backend-only protections are, by definition, not guarantees.
 
@@ -391,7 +391,7 @@ and speaker.
 
 **Build:** `robot/vision/`, extend `robot/state/`.
 
-**Delivered, world-model half** (see [robot-behavior.md](robot-behavior.md)):
+**Delivered, world-model half** (see [behavior-system.md](behavior-system.md)):
 `robot/state/world.py` — entities (`robot`, `person`, `face`, `object`, `location`,
 `obstacle`) with `first_seen`, `last_seen`, `confidence` and either a metric `position` or
 a normalized 0.0–1.0 `image_point`; attention, interactions and an environment block; a
@@ -449,7 +449,7 @@ what the `core/api/vision_handler.py` and auth-token constraints below are about
 
 **Build:** `robot/behavior/`, `robot/personality/`, `robot/animation/`.
 
-**Delivered, behaviour half** (see [robot-behavior.md](robot-behavior.md)):
+**Delivered, behaviour half** (see [behavior-system.md](behavior-system.md)):
 `robot/behavior/` — `tuning.py` (every number the engine compares against, loadable from
 YAML, with a test that parses the behaviours to prove none of them hides a constant),
 `base.py` (the `Behavior` contract, the context, the four autonomy modes), `scheduler.py`
@@ -547,7 +547,7 @@ single-file development dashboard with a simulator panel.
   endpoint is unauthenticated and, when auth is enabled, mints a valid token for whatever
   device id the caller asks for (`core/api/ota_handler.py:OTAHandler.handle_post`,
   `core/auth.py:AuthManager`), so "the caller holds a valid device token" never authorizes
-  actuation. See [safety.md](safety.md).
+  actuation. See [safety-model.md](safety-model.md).
 * Construct TTS/LLM/memory **per device**; never call
   `core/utils/modules_initialize.py:initialize_modules` with `init_tts=True` from robot
   code. Sharing one TTS pipeline between two robots shares its queues, its threads and its
@@ -600,7 +600,7 @@ one before the safety layer exists would document intentions as instructions.
 
 ### Acceptance criteria
 
-* Every firmware-side protection listed in [safety.md](safety.md) is demonstrated on
+* Every firmware-side protection listed in [safety-model.md](safety-model.md) is demonstrated on
   hardware and the result recorded: cliff, collision, acceleration limit, watchdog timeout
   on link loss, e-stop.
 * Link loss during motion halts the robot with the backend process **killed with
@@ -638,5 +638,5 @@ needs both 4 and 5. Phase 7 needs 3 for e-stop and 4 for the action vocabulary.
 | Device tools silently shadow guarded robot tools in the flat namespace | 4 | Collision detection at session start (Phase 4), because `ToolManager.get_all_tools` only logs a warning. |
 | Provider instance sharing between two robots (R5) | 7 | Per-device construction, asserted by the two-robot concurrency test. |
 | `os._exit(0)` restart path fires mid-motion (`core/connection.py:ConnectionHandler.handle_restart`) (R6) | 3, 8 | Firmware watchdog. Proven in Phase 8 with `SIGKILL`. |
-| Actions are disabled by default and stay disabled until Phases 3–4 land; nothing in the tree can command motion today | ongoing | Unchanged by the migration, and deliberate. [safety.md](safety.md) states the boundary. |
+| Actions are disabled by default and stay disabled until Phases 3–4 land; nothing in the tree can command motion today | ongoing | Unchanged by the migration, and deliberate. [safety-model.md](safety-model.md) states the boundary. |
 | Upstream merge conflicts in the inherited files the robot work edits | ongoing | About 10 lines total, all `try/except`-wrapped, all documented in robot-architecture §4.2 with the rationale, so a conflict is resolvable without re-deriving the reasoning. |

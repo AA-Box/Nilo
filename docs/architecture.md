@@ -467,9 +467,9 @@ seams. What exists today:
 | Control plane and the session seam | `robot/runtime.py`, `robot/session.py` | [robot-domain.md](robot-domain.md) |
 | A simulated robot on a real socket | `robot/simulator/` | [robot-simulator.md](robot-simulator.md) |
 | Ten semantic actions, lifecycle, queue, executor | `robot/actions/` | [robot-actions.md](robot-actions.md) |
-| Limits, deterministic policy, e-stop, watchdog | `robot/safety/` | [safety.md](safety.md) |
-| World model (people, objects, attention, interactions) | `robot/state/world.py` | [robot-behavior.md](robot-behavior.md) |
-| Utility-scored autonomy, sixteen behaviours, the explain CLI | `robot/behavior/` | [robot-behavior.md](robot-behavior.md) |
+| Limits, deterministic policy, e-stop, watchdog | `robot/safety/` | [safety-model.md](safety-model.md) |
+| World model (people, objects, attention, interactions) | `robot/state/world.py` | [behavior-system.md](behavior-system.md) |
+| Utility-scored autonomy, sixteen behaviours, the explain CLI | `robot/behavior/` | [behavior-system.md](behavior-system.md) |
 | Traits, internal control variables, their decay and persistence | `robot/personality/` | [robot-personality.md](robot-personality.md) |
 | YAML animations, priority, resource ownership, transitions | `robot/animation/` | [robot-animation.md](robot-animation.md) |
 | Snapshot perception, tracking, face identity, latency metrics | `robot/vision/` | [robot-vision.md](robot-vision.md) |
@@ -481,7 +481,7 @@ seams. What exists today:
 Still **planned**: the LLM-facing bridge, and binding the admin API into `app.py`. The LLM is
 deliberately never given a tool that sets motor, servo or PWM values, and the backend safety
 layer is a policy filter rather than a guarantee — firmware owns every guarantee
-([safety.md](safety.md)).
+([safety-model.md](safety-model.md)).
 
 The layering, the seams `robot/` is allowed to use into `core/`, and the safety rule are in
 [robot-architecture.md](robot-architecture.md); the sequencing is in

@@ -373,3 +373,30 @@ async def test_a_malformed_tool_on_a_live_session_is_skipped(runtime):
     assert capabilities is not None
     assert capabilities.tool_names == ("good_tool",)
     assert capabilities.malformed_tools == 1
+
+
+# -- bounds a device cannot exceed -----------------------------------------------------------------
+
+
+async def test_a_device_that_publishes_too_many_tools_is_truncated_not_trusted(runtime):
+    """An unbounded tool list is unbounded metric cardinality and an unbounded prompt.
+
+    Sixteen is the robot vocabulary. A device offering hundreds has a bug or is not what it
+    says it is, and either way the ceiling is the subsystem's, not the device's.
+    """
+    from robot.devices.mcp import MAX_TOOLS
+
+    flood = [tool_definition(f"tool.{index}") for index in range(MAX_TOOLS + 40)]
+    device = FakeMcpDevice(flood)
+    capabilities = await channel_for(device).discover()
+    assert len(capabilities.tool_names) == MAX_TOOLS
+
+
+async def test_the_live_session_applies_the_same_ceiling(runtime):
+    """The inherited client accumulates every page of tools/list with no limit of its own."""
+    from robot.devices.mcp import MAX_TOOLS
+
+    flood = {f"tool_{index}": tool_definition(f"tool.{index}") for index in range(MAX_TOOLS + 40)}
+    conn = FakeConnection(features={"mcp": True}, mcp_client=FakeDeviceMcpClient(flood))
+    capabilities = await ConnectionToolChannel(conn, ready_timeout=1.0).discover()
+    assert len(capabilities.tool_names) == MAX_TOOLS

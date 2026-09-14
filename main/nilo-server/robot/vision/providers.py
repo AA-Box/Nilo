@@ -151,6 +151,149 @@ class FakeDetector:
         return self
 
 
+#: What the simulator's camera paints each kind of thing, from ``robot/simulator/camera.py``.
+#: A detector that reads these is a detector with no model in it and no randomness, which
+#: is the only kind that belongs in CI.
+SCENE_COLOURS: dict[tuple[int, int, int], tuple[DetectionKind, str]] = {
+    (226, 122, 96): (DetectionKind.PERSON, "person"),
+    (108, 176, 132): (DetectionKind.OBJECT, "object"),
+    (96, 132, 226): (DetectionKind.OBJECT, "dock"),
+}
+
+#: Ignore a blob smaller than this fraction of the frame. The renderer's smallest box is
+#: 3x4 pixels in a 160x120 frame, which is above this; single stray pixels are not.
+MIN_BLOB_AREA = 0.0008
+
+
+class ColourBlobDetector:
+    """Finds the simulator's flat-coloured boxes by reading the pixels. No model, no library.
+
+    This is the deterministic local detector the end-to-end suite runs against. It is a
+    real detector in the only sense that matters for an integration test: it is handed the
+    bytes the device actually sent, and what it finds is a function of where the scenario
+    put a person — not of a script a test wrote next to the assertion.
+
+    It only understands what ``robot/simulator/camera.py`` produces: an 8-bit RGB PNG whose
+    scanlines all use filter type 0. That is not a limitation worth removing — a frame from
+    a real camera is a photograph, and the answer for a photograph is a model, not this.
+    Anything it cannot read yields no detections rather than an error, which is the same
+    contract :class:`NullDetector` has.
+    """
+
+    name = "colour-blob"
+
+    def __init__(
+        self,
+        colours: dict[tuple[int, int, int], tuple[DetectionKind, str]] | None = None,
+        *,
+        min_area: float = MIN_BLOB_AREA,
+    ) -> None:
+        self.colours = dict(SCENE_COLOURS if colours is None else colours)
+        self.min_area = min_area
+
+    async def detect(self, frame: Frame) -> Sequence[Detection]:
+        if not frame.data:
+            return ()
+        decoded = _decode_png(frame.data)
+        if decoded is None:
+            return ()
+        width, height, rows = decoded
+        found: list[Detection] = []
+        for colour, (kind, label) in self.colours.items():
+            for box in _blobs(rows, width, height, colour):
+                if box.area < self.min_area:
+                    continue
+                found.append(Detection(kind=kind, box=box, confidence=1.0, label=label))
+        # Largest first: the nearest thing is the one a behaviour should reason about, and
+        # a stable order makes a failing assertion readable.
+        found.sort(key=lambda detection: -detection.box.area)
+        return tuple(found)
+
+    async def detect_faces(self, frame: Frame) -> Sequence[Detection]:
+        """The renderer draws no faces; a body is not a face and must not be reported as one."""
+        return ()
+
+
+def _decode_png(data: bytes) -> tuple[int, int, list[list[tuple[int, int, int]]]] | None:
+    """8-bit RGB, filter 0 only. ``None`` for anything else — see :class:`ColourBlobDetector`."""
+    import zlib  # noqa: PLC0415 - stdlib, but only this one function needs it
+
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None
+    offset, header, idat = 8, None, bytearray()
+    while offset + 8 <= len(data):
+        length = struct.unpack(">I", data[offset : offset + 4])[0]
+        kind = data[offset + 4 : offset + 8]
+        payload = data[offset + 8 : offset + 8 + length]
+        if kind == b"IHDR":
+            header = struct.unpack(">IIBBBBB", payload)
+        elif kind == b"IDAT":
+            idat += payload
+        elif kind == b"IEND":
+            break
+        offset += 12 + length
+    if header is None:
+        return None
+    width, height, depth, colour_type, _, _, interlace = header
+    if depth != 8 or colour_type != 2 or interlace != 0:
+        return None
+    try:
+        raw = zlib.decompress(bytes(idat))
+    except zlib.error:
+        return None
+    stride = width * 3
+    if len(raw) < height * (stride + 1):
+        return None
+    rows: list[list[tuple[int, int, int]]] = []
+    for y in range(height):
+        start = y * (stride + 1)
+        if raw[start] != 0:  # a filtered scanline: not something this decoder claims to read
+            return None
+        line = raw[start + 1 : start + 1 + stride]
+        rows.append([(line[x * 3], line[x * 3 + 1], line[x * 3 + 2]) for x in range(width)])
+    return width, height, rows
+
+
+def _blobs(
+    rows: list[list[tuple[int, int, int]]], width: int, height: int, colour: tuple[int, int, int]
+) -> list[BoundingBox]:
+    """Connected regions of one exact colour, as normalized boxes.
+
+    A flood fill rather than a bounding box over every matching pixel: two people in the
+    frame are two detections, and one box around both of them is the bug that would make
+    a greeting behaviour greet the space between them.
+    """
+    seen = [[False] * width for _ in range(height)]
+    boxes: list[BoundingBox] = []
+    for y in range(height):
+        for x in range(width):
+            if seen[y][x] or rows[y][x] != colour:
+                continue
+            left = right = x
+            top = bottom = y
+            stack = [(x, y)]
+            seen[y][x] = True
+            while stack:
+                cx, cy = stack.pop()
+                left, right = min(left, cx), max(right, cx)
+                top, bottom = min(top, cy), max(bottom, cy)
+                for nx, ny in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
+                    if 0 <= nx < width and 0 <= ny < height and not seen[ny][nx] and rows[ny][nx] == colour:
+                        seen[ny][nx] = True
+                        stack.append((nx, ny))
+            boxes.append(
+                BoundingBox.from_pixels(
+                    left,
+                    top,
+                    right - left + 1,
+                    bottom - top + 1,
+                    frame_width=width,
+                    frame_height=height,
+                )
+            )
+    return boxes
+
+
 class HeaderVisionProvider:
     """Reads the image dimensions out of the file header. No dependencies at all.
 
@@ -368,6 +511,9 @@ def _jpeg_size(data: bytes) -> tuple[int, int] | None:
 
 
 __all__ = [
+    "MIN_BLOB_AREA",
+    "SCENE_COLOURS",
+    "ColourBlobDetector",
     "FaceDetector",
     "FaceRecognizer",
     "FakeDetector",

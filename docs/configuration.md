@@ -171,7 +171,7 @@ A token is `<urlsafe-base64 HMAC-SHA256 of "client_id|device_id|timestamp">.<tim
 carries no plaintext identifiers, and the device sends `device-id`, `client-id` and
 `Authorization: Bearer <token>` separately. With `auth.enabled: true` and a non-empty
 `allowed_devices`, listed devices receive an empty token and are let through by device ID; every
-other device is issued and then checked against a real token. See [safety.md](safety.md).
+other device is issued and then checked against a real token. See [safety-model.md](safety-model.md).
 
 ## Logging
 
@@ -443,11 +443,133 @@ Add these to your override file when you need them.
 | `log.selected_module` | `00000000000000` | `config/logger.py:setup_logging` |
 | `manager-api.url`, `manager-api.secret` | unset | `config/config_loader.py` (deprecated) |
 
+## The robot subsystem's configuration
+
+The robot's numbers live in **one document of their own**, `data/robot.yaml` (or wherever
+`NILO_ROBOT_CONFIG` points), and deliberately not in `config.yaml`. The reason is the
+deprecated remote-configuration mode above: it replaces the local configuration wholesale
+with the API response and only the `server` and `manager-api` blocks survive, so a speed
+ceiling stored there would silently vanish in exactly the deployment that has the most
+robots in it.
+
+Audio, the language model and the whole provider stack stay in `config.yaml`, because those
+are the inherited server's and it owns their lifecycle.
+
+### One file, six sections
+
+```yaml
+# data/robot.yaml
+robot:                         # the control plane
+  autonomy: normal             # off | passive | normal | full
+  autostart_behaviors: false   # a robot must not start moving because it was plugged in
+  behavior_interval_s: 0.5
+  discovery_timeout_s: 10.0
+  animation_dir: ""            # extra animations, on top of the built-in library
+
+safety:                        # every number the policy compares against
+  max_distance_mm: 1000
+  max_angle_deg: 180
+  max_speed_mmps: 300
+  min_obstacle_distance_mm: 250
+  max_sensor_age_s: 2.0
+  heartbeat_timeout_s: 5.0
+
+behavior:                      # the scoring weights and cooldowns
+  greet_cooldown_s: 300
+  boredom_onset_s: 120
+
+personality:
+  traits:
+    curiosity: 0.6
+    sociability: 0.7
+  store_dir: data/robot_personality   # empty keeps personality in memory only
+
+memory:
+  enabled: false               # off by default: a runtime must not create a database by existing
+  path: data/robot_memory.sqlite3
+  consolidation_interval_s: 0
+
+vision:
+  enabled: false
+  interval_s: 1.0
+  detector: "null"             # null | colour-blob | yolo
+  model_path: ""
+```
+
+Every section is optional, and every field has a conservative default. A deployment with no
+`data/robot.yaml` at all gets a robot that connects, obeys safety, decides for itself, has
+no long-term memory and sees nothing — which is the right thing for a first run.
+
+### The hierarchy
+
+Lowest precedence first:
+
+1. the built-in defaults
+2. `data/robot.yaml`, or `$NILO_ROBOT_CONFIG`
+3. the legacy per-area files — `data/robot_limits.yaml`, `data/robot_behavior.yaml`,
+   `data/robot_personality.yaml` — for a section the main document does not mention. Each
+   one logs a warning naming the key to move it under; they still work, and they are the
+   migration path rather than the destination.
+4. environment variables, named after the section and the field —
+   `NILO_ROBOT_SAFETY_MAX_SPEED_MMPS` sets `safety.max_speed_mmps`
+5. a secret file, for the one secret there is
+
+An unknown key in the file is an error, not a silently ignored line, and a variable with
+that prefix that names no field is a warning — because the failure it otherwise
+produces is "I set the speed limit and nothing happened".
+
+### Environment overrides
+
+The section comes first, except `robot`, which is addressable without repeating itself:
+
+| Variable | Sets |
+|---|---|
+| `NILO_ROBOT_CONFIG` | the path of the document itself |
+| `NILO_ROBOT_AUTONOMY` | `robot.autonomy` |
+| `NILO_ROBOT_AUTOSTART_BEHAVIORS` | `robot.autostart_behaviors` |
+| `NILO_ROBOT_BEHAVIOR_INTERVAL_S` | `robot.behavior_interval_s` |
+| `NILO_ROBOT_DISCOVERY_TIMEOUT_S` | `robot.discovery_timeout_s` |
+| `NILO_ROBOT_ANIMATION_DIR` | `robot.animation_dir` |
+| `NILO_ROBOT_SAFETY_MAX_SPEED_MMPS` | `safety.max_speed_mmps` |
+| `NILO_ROBOT_SAFETY_MAX_DISTANCE_MM` | `safety.max_distance_mm` |
+| `NILO_ROBOT_MEMORY_ENABLED` | `memory.enabled` |
+| `NILO_ROBOT_MEMORY_PATH` | `memory.path` |
+| `NILO_ROBOT_MEMORY_CONSOLIDATION_INTERVAL_S` | `memory.consolidation_interval_s` |
+| `NILO_ROBOT_VISION_ENABLED` | `vision.enabled` |
+| `NILO_ROBOT_VISION_INTERVAL_S` | `vision.interval_s` |
+| `NILO_ROBOT_VISION_DETECTOR` | `vision.detector` |
+| `NILO_ROBOT_VISION_MODEL_PATH` | `vision.model_path` |
+| `NILO_ROBOT_PERSONALITY_STORE_DIR` | `personality.store_dir` |
+
+The rule is mechanical rather than a list: any scalar field on any section can be set this
+way, and the table is the useful subset.
+
+### Secrets
+
+There is exactly one secret in the robot subsystem — the management API's admin token —
+and it never belongs in a file that is committed:
+
+| Variable | Meaning |
+|---|---|
+| `NILO_ROBOT_ADMIN_TOKEN_FILE` | read the token from this path. **Preferred**: what every orchestrator mounts, and it does not appear in `ps`, an image layer or a crash dump of the environment |
+| `NILO_ROBOT_ADMIN_TOKEN` | the token itself. Convenient for a developer |
+
+The file wins when both are set. With neither, the management API refuses every
+authenticated route — it fails closed, which is the right behaviour for a surface that can
+move a robot and delete its memory ([robot-api.md](robot-api.md)).
+
+### Where it is assembled
+
+One place: [`robot/bootstrap.py`](../main/nilo-server/robot/bootstrap.py), called once from
+`app.py` before the WebSocket server starts, so the first device to connect finds a
+configured runtime rather than a default one.
+
 ## Verifying a change
 
 ```bash
 cd main/nilo-server
 python -m pytest tests/config -q      # config loader, env overrides, NILO_CONFIG
+python -m pytest tests/robot/test_config.py -q   # the robot hierarchy and the composition root
 python -m pytest -q                   # full suite
 python app.py                         # startup prints the resolved endpoints
 ```

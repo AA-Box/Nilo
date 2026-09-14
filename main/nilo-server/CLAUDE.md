@@ -7,13 +7,18 @@ source of truth; read them before touching anything:
 * [`docs/robot-architecture.md`](../../docs/robot-architecture.md) — where robot code goes and the safety rule
 * [`docs/robot-domain.md`](../../docs/robot-domain.md) — the robot domain layer that is implemented
 * [`docs/robot-actions.md`](../../docs/robot-actions.md) — the action and safety layers, and how to use them
-* [`docs/safety.md`](../../docs/safety.md) — the safety split, and what firmware must implement itself
+* [`docs/safety-model.md`](../../docs/safety-model.md) — the safety split, and what firmware must implement itself
 * [`docs/robot-simulator.md`](../../docs/robot-simulator.md) — the simulator: run it, extend it, test against it
 * [`docs/robot-agent.md`](../../docs/robot-agent.md) — the LLM seam: tools, permissions, context, speech
 * [`docs/robot-voice.md`](../../docs/robot-voice.md) — the voice loop: audio state, barge-in, expression
 * [`docs/robot-api.md`](../../docs/robot-api.md) — the management API, its three gates, and the dashboard
+* [`docs/architecture-final.md`](../../docs/architecture-final.md) — the whole system, every flow, every failure mode
+* [`docs/robot-getting-started.md`](../../docs/robot-getting-started.md) — clone to a talking, moving, deciding robot
+* [`docs/robot-protocol.md`](../../docs/robot-protocol.md) — every frame a device puts on the wire
+* [`docs/observability.md`](../../docs/observability.md) — metrics, correlation ids, the trace
 * [`docs/development.md`](../../docs/development.md) — setup, lint, tests, layout
 * [`docs/upstream.md`](../../docs/upstream.md) — which code is inherited and how it is synced
+* [`docs/upstream-changes.md`](../../docs/upstream-changes.md) — every hook into it, and a test that enforces the list
 * [`docs/branding.md`](../../docs/branding.md) — naming rules (no product name in domain code, no Chinese)
 
 ## Layout in one glance
@@ -39,9 +44,11 @@ robot/            Nilo-owned code: protocol/ (routes), state/ (models + store + 
                   api/ (the management API and the
                   development dashboard, on their own port), telemetry.py (device
                   notifications -> world state), simulator/ (a fake robot on a real socket),
-                  runtime.py, session.py
+                  metrics.py + observability.py + correlation.py (one subscriber folds every
+                  event into metrics and one trace line), runtime.py, session.py
 tests/            pytest; tests/conftest.py points NILO_CONFIG at tests/fixtures/test_config.yaml.
-                  tests/robot/ never opens a socket; tests/integration/ starts a real server
+                  tests/robot/ never opens a socket; tests/integration/ starts a real server;
+                  tests/e2e/ is the ten scenarios, with local fakes for ASR, TTS, LLM and vision
 ```
 
 Rules of thumb:
@@ -49,7 +56,7 @@ Rules of thumb:
 * New robot functionality goes under `robot/`; attach to `core/` through the smallest possible
   hook. Every line changed in `core/` is a line that conflicts on the next upstream port.
 * The LLM never gets a tool that sets motor/servo/PWM values. Semantic actions only
-  (`docs/robot-architecture.md`, `docs/safety.md`).
+  (`docs/robot-architecture.md`, `docs/safety-model.md`).
 * Nothing talks to a device except `robot/actions/executor.py`. New capabilities are new
   action specs, not new call sites.
 * `robot/safety/` may import `robot/state/` and nothing else from the subsystem, and it
@@ -57,7 +64,7 @@ Rules of thumb:
   `tests/robot/test_safety.py` the second.
 * The behaviour engine never consults an LLM, never reads the wall clock, and never writes
   a number into a scoring function — tuning lives in `robot/behavior/tuning.py` and a test
-  parses the source to prove it (`docs/robot-behavior.md`).
+  parses the source to prove it (`docs/behavior-system.md`).
 * Memory is four stores, not one vector index, and embeddings are optional. Nothing may
   overwrite a semantic fact blindly: every write goes through `merge_fact`, and an LLM that is
   less confident than what is stored does not change the answer (`docs/robot-memory.md`).
@@ -87,6 +94,13 @@ Rules of thumb:
 * Backend safety is a policy filter, never a guarantee. Do not write a comment, log line or
   doc sentence implying the backend can stop a robot.
 * Device routes live only in `robot/protocol/`; never spell a path into `core/`.
+* The subsystem is **assembled in one place**: `robot/config.py` reads the hierarchy and
+  `robot/bootstrap.py` turns it into a runtime, called once from `app.py`. A new configurable
+  value is a field on a model there, never a sixth loader (`docs/configuration.md`).
+* Every hook into inherited code is listed in `docs/upstream-changes.md` and enforced by
+  `tests/robot/test_upstream_seam.py`. Adding one without documenting it fails CI.
+* Metrics and the correlation trace are one subscriber over the existing events
+  (`robot/observability.py`). Never instrument a subsystem directly (`docs/observability.md`).
 * English only in comments, log lines and docs.
 
 ## Commands that work
@@ -105,6 +119,7 @@ pytest tests/robot/test_memory.py -q  # memory: persistence, retrieval, consolid
 pytest tests/robot/test_agent.py -q   # the LLM seam, against a scripted model
 pytest tests/robot/test_voice_loop.py -q  # the whole loop against a simulated robot
 pytest tests/robot/test_api_control.py -q # the API that can move a robot, and its three gates
+pytest tests/e2e -q                   # the ten end-to-end scenarios; writes tmp/e2e-report.md
 NILO_ROBOT_ADMIN_TOKEN=dev python app.py  # dashboard on http://127.0.0.1:8010/
 python ../../scripts/smoke_check.py   # against a running server
 ```

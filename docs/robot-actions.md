@@ -7,7 +7,7 @@ arbitrates between them, and what the safety policy will and will not allow.
 
 The design rules behind it are in [robot-architecture.md](robot-architecture.md) §2.8, §2.9
 and §3; the safety contract — including **what firmware must implement independently** — is
-[safety.md](safety.md). Read that page before connecting a machine that can move.
+[safety-model.md](safety-model.md). Read that page before connecting a machine that can move.
 
 ```python
 from robot.actions import MoveAction, RobotActionExecutor
@@ -369,7 +369,7 @@ skipping every `finally`), the event loop can stall for an unbounded period
 cancelled from here. A stop that depends on any of those is not a stop.
 
 Do not connect a machine that can hurt someone and rely on this layer to stop it. See
-[safety.md](safety.md) for the full split and the reasoning behind each line.
+[safety-model.md](safety-model.md) for the full split and the reasoning behind each line.
 
 ---
 
@@ -394,7 +394,7 @@ only way to exercise the action watchdog on a live, healthy link. See
 ## Related pages
 
 * [robot-architecture.md](robot-architecture.md) — the layering, the seams, the design rule
-* [safety.md](safety.md) — the full safety split and the firmware contract
+* [safety-model.md](safety-model.md) — the full safety split and the firmware contract
 * [robot-domain.md](robot-domain.md) — the registry, world state and event bus this sits on
 * [robot-simulator.md](robot-simulator.md) — the robot every test runs against
 * [robot-roadmap.md](robot-roadmap.md) — what lands next (the LLM seam is Phase 4)

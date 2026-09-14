@@ -27,6 +27,7 @@ from core.utils.util import check_ffmpeg_installed, get_local_ip, validate_mcp_e
 from core.websocket_server import WebSocketServer
 from robot import __version__
 from robot.api import API_HOST_ENV, API_PORT_ENV, DEFAULT_API_PORT, run_api, supervise
+from robot.bootstrap import start_robot_subsystem
 from robot.logging import install as install_robot_logging
 from robot.protocol import registry_from_config
 from robot.runtime import get_runtime
@@ -103,6 +104,11 @@ async def main():
 
     logger.bind(tag=TAG).info("nilo-server {} starting", __version__)
 
+    # The robot subsystem's composition root. Before the WebSocket server, so the first
+    # device to connect finds a configured runtime rather than a default one
+    # (docs/configuration.md).
+    await start_robot_subsystem()
+
     stdin_task = asyncio.create_task(monitor_stdin())
 
     # global GC manager (runs every 5 minutes)
@@ -155,6 +161,15 @@ async def main():
         print("cancelled, cleaning up...")
     finally:
         await gc_manager.stop()
+
+        # The robot subsystem first: closing it cancels discovery, stops the action pump
+        # and its watchdog thread, closes every memory store and drains the event bus.
+        # Without this the process exits with those still running and SQLite is closed by
+        # the interpreter shutting down rather than by us (docs/robot-architecture.md R5).
+        try:
+            await asyncio.wait_for(get_runtime().aclose(), timeout=5.0)
+        except Exception as error:  # a subsystem that will not close must not hang the exit
+            logger.bind(tag=TAG).warning("closing the robot runtime failed: {}", error)
 
         if robot_api_task.done() and not robot_api_task.cancelled() and robot_api_task.exception() is None:
             await robot_api_task.result().cleanup()

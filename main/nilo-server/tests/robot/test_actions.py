@@ -153,7 +153,7 @@ def test_specs_are_frozen_and_reject_unknown_parameters() -> None:
 
 def test_specs_do_not_range_check_their_own_numbers() -> None:
     """Bounds are configurable policy. A spec that raised here would turn a rejection the
-    caller can read into an exception at the call site (docs/safety.md)."""
+    caller can read into an exception at the call site (docs/safety-model.md)."""
     assert MoveAction(distance_mm=999_999).distance_mm == 999_999
     assert TurnAction(angle_deg=100_000).angle_deg == 100_000
     assert LiftAction(height_pct=-5).height_pct == -5

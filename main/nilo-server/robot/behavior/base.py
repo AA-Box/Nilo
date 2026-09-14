@@ -18,7 +18,7 @@ Two rules are structural rather than conventional:
   ``context.now``, and the only randomness ``context.rng``. That is what makes a fixed
   world plus a fixed seed produce the same decision every time.
 * **Safety is not negotiable here.** A behaviour proposes; the action layer disposes. A
-  score of 1.0 buys nothing from the safety policy (docs/safety.md), which is one layer
+  score of 1.0 buys nothing from the safety policy (docs/safety-model.md), which is one layer
   down and cannot see this module.
 """
 
@@ -86,7 +86,7 @@ class BehaviorCategory(str, Enum):
 
     Safety and system behaviours outrank social and entertainment ones *categorically* —
     a docking run at 8% battery is not compared against a greeting on utility, it wins
-    because of what it is (docs/robot-behavior.md).
+    because of what it is (docs/behavior-system.md).
     """
 
     SAFETY = "safety"

@@ -47,6 +47,6 @@ These are known and documented, not findings:
 ## Safety, not security
 
 Physical-safety behaviour — motion limits, collision and cliff avoidance, watchdogs, emergency
-stop — is documented in [`docs/safety.md`](docs/safety.md). The backend is a policy filter, not a
+stop — is documented in [`docs/safety-model.md`](docs/safety-model.md). The backend is a policy filter, not a
 real-time guarantee; the device owns safety-critical control. A report that the backend cannot
 guarantee a motion deadline is expected behaviour, not a vulnerability.

@@ -17,7 +17,7 @@ from a daemon thread on a restart message), its event loop can stall for an unbo
 GIL), and a command the device has already accepted cannot be cancelled from here. Cliff
 protection, the motor watchdog, acceleration bounds and the local emergency stop are
 implemented **again, independently, in firmware**, and the firmware copy is the one that
-holds when this process is gone. See docs/safety.md.
+holds when this process is gone. See docs/safety-model.md.
 
 Rejections are typed and they are *rejections*, not clamps. A request beyond a configured
 limit comes back as :class:`~robot.state.actions.RejectionReason.DISTANCE_LIMIT_EXCEEDED`
