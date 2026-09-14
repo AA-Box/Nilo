@@ -83,8 +83,13 @@ def build_app(
         guard.authorize(request, sensitivity)
 
     async def robot_id_of(request: web.Request) -> str:
-        """The robot in the path, checked. A robot nobody has heard of is a 404, not a 500."""
-        robot_id = request.match_info["robot_id"]
+        """The robot in the path, checked. A robot nobody has heard of is a 404, not a 500.
+
+        ``str()`` rather than a bare index: the lint job installs the dev slice only, so
+        aiohttp is absent there and ``match_info`` is ``Any``. Without the conversion this
+        type-checks locally and fails in CI, which is the worst order to find it in.
+        """
+        robot_id = str(request.match_info["robot_id"])
         if await runtime.get_state(robot_id) is None:
             raise ApiError(404, f"no robot named {robot_id!r}")
         return robot_id
