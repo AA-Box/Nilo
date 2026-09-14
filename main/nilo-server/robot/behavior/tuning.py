@@ -114,6 +114,30 @@ class BehaviorTuning(BaseModel):
     follow_duration_ms: int = Field(default=4000, ge=0)
     follow_stop_distance_mm: int = Field(default=600, ge=0)
 
+    # -- tracking a target (robot/behavior/tracking.py) ------------------------------------------
+    #: Horizontal field of view of the camera, in degrees. What a normalized offset is
+    #: multiplied by to become a turn. It is a property of the hardware, so a different
+    #: chassis overrides it rather than the code guessing.
+    camera_fov_deg: float = Field(default=60.0, gt=0)
+    #: Shortest interval between two look-at commands. The rate limit that stops a fast
+    #: tracker becoming a command stream the head cannot follow.
+    look_at_min_interval_s: float = Field(default=0.4, ge=0)
+    #: Fraction of the off-centre error a single look-at command corrects. Below 1 on
+    #: purpose: commanding the whole error is what makes tracking oscillate.
+    look_at_gain: float = Field(default=0.6, gt=0.0, le=1.0)
+    #: Shortest interval between two follow commands.
+    follow_min_interval_s: float = Field(default=0.5, ge=0)
+    #: Horizontal offset below which following does not bother turning.
+    follow_turn_deadband: float = Field(default=0.08, ge=0.0, le=0.5)
+    follow_turn_gain: float = Field(default=0.7, gt=0.0, le=1.0)
+    #: Ceiling on a single follow turn. A follow that pirouettes has lost the target.
+    follow_max_turn_deg: int = Field(default=30, ge=0)
+    #: One forward leg of a follow, re-decided on the next frame.
+    follow_step_mm: int = Field(default=250, ge=0)
+    #: Hysteresis around the stop distance. With one camera the distance estimate is
+    #: rough, and a single threshold would have the robot creeping back and forth over it.
+    follow_stop_band_mm: int = Field(default=150, ge=0)
+
     # -- reactions ---------------------------------------------------------------------------------
     #: Reactions outrank most things: a robot that ignores being touched feels broken.
     touch_score: float = Field(default=0.85, ge=0.0, le=1.0)

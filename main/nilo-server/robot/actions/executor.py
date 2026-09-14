@@ -132,8 +132,11 @@ class RobotActionExecutor:
 
         self._runtime = runtime
         self._policy = policy or RobotSafetyPolicy(limits or SafetyLimits())
-        self._queue = queue or RobotActionQueue()
-        self._registry = registry or RobotActionRegistry()
+        # Not `queue or RobotActionQueue()`: both of these are falsy when empty (they have
+        # a __len__), so `or` would discard the one a caller handed in — which is exactly
+        # the state they are in when a test passes a fresh one.
+        self._queue = RobotActionQueue() if queue is None else queue
+        self._registry = RobotActionRegistry() if registry is None else registry
         self._watchdog: Watchdog = watchdog if watchdog is not None else Watchdog()
         self._start_watchdog = start_watchdog
         self._wake = asyncio.Event()
