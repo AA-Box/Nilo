@@ -58,6 +58,14 @@ than a smart speaker. The direction is described in [docs/robot-architecture.md]
   coordinates, face identity that keeps embeddings in one place, frame retention that defaults to
   keeping nothing, and latency metrics. OpenCV and YOLO are optional and lazily imported; the
   defaults need nothing installed ([docs/robot-vision.md](docs/robot-vision.md))
+* Robot memory (`main/nilo-server/robot/memory/`): four stores — working, episodic, semantic and
+  person — over SQLite with migrations behind an interface Postgres can implement, optional
+  embeddings (the robot works without them), token-budgeted retrieval that explains every item it
+  returns, consolidation that tracks provenance and never lets a model overwrite a fact it is less
+  sure about, and real delete operations ([docs/robot-memory.md](docs/robot-memory.md))
+* Robot admin API (`main/nilo-server/robot/api/`): its own aiohttp app, its own port, its own token —
+  inspect memory, see what would go into a prompt, delete a person, and ask why the robot is doing
+  what it is doing. No endpoint moves a robot
 * Robot safety policy (`main/nilo-server/robot/safety/`): deterministic admission against configurable limits and
   live sensor state, typed rejections (never silent clamping), a sticky emergency-stop latch, and a supervisory
   watchdog on its own thread. A **policy filter, not a guarantee** — firmware owns every guarantee

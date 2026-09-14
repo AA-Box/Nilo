@@ -38,6 +38,7 @@ ROBOT_MODULES = (
     "robot.personality",
     "robot.animation",
     "robot.vision",
+    "robot.memory",
     "robot.runtime",
     "robot.session",
 )
@@ -93,6 +94,8 @@ FORBIDDEN: dict[str, frozenset[str]] = {
     # Vision writes the world model and publishes events. Deciding what to do about a
     # person, and commanding the robot to do it, is one layer up.
     "vision": frozenset({"actions", "animation", "behavior", "personality", "devices", "safety", "simulator"}),
+    # Memory stores what happened. It does not decide anything and it does not command.
+    "memory": frozenset({"actions", "animation", "behavior", "devices", "personality", "safety", "simulator"}),
     "personality": frozenset(
         {"actions", "animation", "behavior", "devices", "safety", "simulator", "vision", "memory"}
     ),

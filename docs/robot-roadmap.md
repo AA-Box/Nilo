@@ -9,8 +9,8 @@ safety layers ([robot-domain.md](robot-domain.md), [robot-simulator.md](robot-si
 [robot-actions.md](robot-actions.md)), and so have the world model and the behaviour engine
 ([robot-behavior.md](robot-behavior.md)), and personality, emotion and expressive animation
 ([robot-personality.md](robot-personality.md), [robot-animation.md](robot-animation.md))
-and robot vision ([robot-vision.md](robot-vision.md)). Robot memory, the LLM seam and the
-management API are **not implemented**. This page is the plan, and the
+robot vision ([robot-vision.md](robot-vision.md)) and robot memory with its admin API
+([robot-memory.md](robot-memory.md)). The LLM seam is **not implemented**. This page is the plan, and the
 honest boundary between what runs and what is design: each phase below says which half it is
 in, and a **Delivered** note means the code is in the tree.
 
@@ -484,7 +484,23 @@ skipped until speech becomes an ``AUDIO`` resource claim.
 
 ## Phase 7 — Management API, memory, multi-robot
 
-**Build:** **robot/api/**, **robot/memory/**. Spend the 3-line `app.py` budget.
+**Build:** `robot/api/`, `robot/memory/`. Spend the 3-line `app.py` budget.
+
+**Delivered, memory and inspection halves** (see [robot-memory.md](robot-memory.md)):
+`robot/memory/` — four stores (working, episodic, semantic, person), a `MemoryStore`
+interface with a stdlib-`sqlite3` implementation behind it, ordered migrations recorded in
+a `schema_version` table, an optional `EmbeddingProvider` (the robot works with embeddings
+disabled, and a test proves it), token-budgeted ranked retrieval that explains every item
+it returns, a deterministic consolidation job that writes provenance and never lets a
+proposer overwrite a fact it is less confident about, and the privacy operations: delete a
+memory, delete a person and everything about them, clear a robot. `robot/api/` — an aiohttp
+admin app on its own port with its own constant-time-compared token, serving memory
+inspection, recall, consolidation, the delete paths and the behaviour engine's
+`why` explanation; it has no endpoint that can move a robot, and a test asserts that.
+
+**Still open:** binding the API into `app.py` (the 3-line budget) with the done-callback
+escalation — `robot/api/server.py:supervise` is written and unused until then — the
+per-device TTS/LLM construction, and the two-robot concurrency proof.
 
 **Key constraints** (robot-architecture §4.2, §4.3, R5, R11, R12):
 
@@ -512,16 +528,22 @@ skipped until speech becomes an ``AUDIO`` resource claim.
 
 ### Acceptance criteria
 
-* The API enumerates connected robots, reports per-robot state, accepts a semantic action,
-  and accepts an e-stop. Every endpoint has a test.
-* An unauthenticated request to every mutating endpoint is rejected. A valid **device**
-  token is rejected for admin endpoints.
+* **Partly done.** The API enumerates connected robots and reports per-robot state, and
+  every endpoint it has is tested. It deliberately does **not** accept a semantic action or
+  an e-stop yet: actuation from an admin surface is a second path to the hardware, and it
+  needs the authentication story finished first.
+* **Done.** An unauthenticated request to every endpoint except `/health` is rejected, as
+  is a wrong token; an API with no token configured fails closed. The admin credential is
+  separate from the device-token signing key by construction — nothing in `robot/api/`
+  can see or mint one.
 * Two simulated robots run a full session concurrently with **no** cross-talk: separate TTS
   pipelines, separate memory ids, separate world state. Asserted, because R5 says the naive
   path fails exactly here.
 * Killing the robot API task causes a logged escalation and a safe state, not a silently
   degraded server.
-* Robot state survives a server restart; a test writes, restarts the store, and reads back.
+* **Done.** Robot state survives a server restart; `tests/robot/test_memory.py` writes,
+  closes the store, opens a new one over the same file and reads back — including that
+  consolidation does not re-derive what it already folded in.
 
 ---
 
