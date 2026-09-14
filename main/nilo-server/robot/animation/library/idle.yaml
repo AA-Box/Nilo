@@ -1,0 +1,114 @@
+# Idle, curiosity and power animations.
+
+animations:
+  idle_breathe:
+    description: The default loop. A slow lift breath so a still robot is not a dead one.
+    priority: 10
+    loop: true
+    energetic: false
+    tags: [idle]
+    duration_ms: 4000
+    steps:
+      - {at_ms: 0, channel: eyes, action: expression, args: {emotion: neutral, intensity_pct: 40}}
+      - {at_ms: 0, channel: lift, action: height, args: {height_pct: 12}}
+      - {at_ms: 2000, channel: lift, action: height, args: {height_pct: 4}}
+
+  look_around_sweep:
+    description: A head sweep left, right and back to centre.
+    priority: 30
+    energetic: false
+    transition: curious
+    tags: [idle, curiosity]
+    duration_ms: 2400
+    steps:
+      - {at_ms: 0, channel: eyes, action: expression, args: {emotion: curious, intensity_pct: 60}}
+      - {at_ms: 100, channel: head, action: angle, args: {yaw_deg: 35}}
+      - {at_ms: 900, channel: head, action: angle, args: {yaw_deg: -35}}
+      - {at_ms: 1700, channel: head, action: angle, args: {yaw_deg: 0}}
+
+  curious_tilt:
+    description: Head tilt at something new. The investigate animation.
+    priority: 40
+    energetic: false
+    transition: curious
+    tags: [curiosity]
+    duration_ms: 1400
+    steps:
+      - {at_ms: 0, channel: eyes, action: expression, args: {emotion: curious, intensity_pct: 80}}
+      - {at_ms: 150, channel: head, action: angle, args: {pitch_deg: -10, yaw_deg: 12}}
+      - {at_ms: 900, channel: head, action: angle, args: {pitch_deg: 0, yaw_deg: 0}}
+
+  bored_sigh:
+    description: Nothing has happened for a long time, and the robot would like that noted.
+    priority: 20
+    energetic: false
+    transition: neutral
+    tags: [idle]
+    duration_ms: 2000
+    steps:
+      - {at_ms: 0, channel: eyes, action: expression, args: {emotion: sleepy, intensity_pct: 50}}
+      - {at_ms: 200, channel: lift, action: height, args: {height_pct: 20}}
+      - {at_ms: 800, channel: lift, action: height, args: {height_pct: 0}}
+      - {at_ms: 900, channel: audio, action: cue, args: {sound: sigh}}
+
+  confused_shrug:
+    description: A command that made no sense, or a failed attempt.
+    priority: 50
+    energetic: false
+    transition: neutral
+    tags: [reaction]
+    duration_ms: 1300
+    steps:
+      - {at_ms: 0, channel: eyes, action: expression, args: {emotion: confused, intensity_pct: 80}}
+      - {at_ms: 150, channel: head, action: angle, args: {yaw_deg: 15}}
+      - {at_ms: 550, channel: head, action: angle, args: {yaw_deg: -15}}
+      - {at_ms: 950, channel: head, action: angle, args: {yaw_deg: 0}}
+
+  sleepy_settle:
+    description: "Going to sleep: eyes droop, lift down, and stay there."
+    priority: 40
+    energetic: false
+    transition: sleepy
+    tags: [power]
+    duration_ms: 2200
+    steps:
+      - {at_ms: 0, channel: eyes, action: expression, args: {emotion: sleepy, intensity_pct: 90}}
+      - {at_ms: 300, channel: lift, action: height, args: {height_pct: 0}}
+      - {at_ms: 1200, channel: audio, action: cue, args: {sound: yawn}}
+
+  wake_stretch:
+    description: Waking up. Eyes open, lift stretches, head comes up.
+    priority: 60
+    energetic: true
+    transition: neutral
+    tags: [power]
+    duration_ms: 1800
+    steps:
+      - {at_ms: 0, channel: eyes, action: expression, args: {emotion: surprised, intensity_pct: 60}}
+      - {at_ms: 150, channel: lift, action: height, args: {height_pct: 60}}
+      - {at_ms: 700, channel: head, action: angle, args: {pitch_deg: 10}}
+      - {at_ms: 1100, channel: lift, action: height, args: {height_pct: 10}}
+      - {at_ms: 1200, channel: head, action: angle, args: {pitch_deg: 0}}
+
+  charging_content:
+    description: On the dock. A slow, quiet loop that claims only the face.
+    priority: 25
+    loop: true
+    energetic: false
+    tags: [power]
+    duration_ms: 6000
+    steps:
+      - {at_ms: 0, channel: eyes, action: expression, args: {emotion: sleepy, intensity_pct: 30}}
+      - {at_ms: 3000, channel: eyes, action: expression, args: {emotion: happy, intensity_pct: 25}}
+
+  low_battery_warning:
+    description: Low, and no dock in reach. Says so without driving anywhere.
+    priority: 75
+    energetic: false
+    transition: sad
+    tags: [power]
+    duration_ms: 1500
+    steps:
+      - {at_ms: 0, channel: eyes, action: expression, args: {emotion: sad, intensity_pct: 70}}
+      - {at_ms: 400, channel: audio, action: cue, args: {sound: low_beep}}
+      - {at_ms: 900, channel: eyes, action: expression, args: {emotion: sleepy, intensity_pct: 60}}

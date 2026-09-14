@@ -1,0 +1,63 @@
+# Greetings and social reactions.
+#
+# Every animation in this directory is data: adding one here is the whole change, no
+# Python edit and no registration. See docs/robot-animation.md.
+#
+# at_ms is an offset from the start of the animation, not a delay from the previous step,
+# so a step can be retimed without shifting everything after it.
+
+animations:
+  excited_greeting:
+    description: Eyes light up, a small head bounce, a short wiggle, an optional chirp.
+    priority: 60
+    energetic: true
+    transition: happy
+    tags: [greeting, social]
+    duration_ms: 1600
+    steps:
+      - {at_ms: 0, channel: eyes, action: expression, args: {emotion: excited, intensity_pct: 90}}
+      - {at_ms: 0, channel: head, action: angle, args: {pitch_deg: 12}}
+      - {at_ms: 200, channel: audio, action: cue, args: {sound: chirp}}
+      - {at_ms: 260, channel: head, action: angle, args: {pitch_deg: -6}}
+      - {at_ms: 520, channel: head, action: angle, args: {pitch_deg: 0}}
+      - {at_ms: 700, channel: body, action: turn, args: {angle_deg: 12}}
+      - {at_ms: 1000, channel: body, action: turn, args: {angle_deg: -12}}
+
+  calm_greeting:
+    description: A quiet hello, for a tired robot or a quiet room. No drive motion.
+    priority: 55
+    energetic: false
+    transition: happy
+    tags: [greeting, social]
+    duration_ms: 900
+    steps:
+      - {at_ms: 0, channel: eyes, action: expression, args: {emotion: happy, intensity_pct: 70}}
+      - {at_ms: 120, channel: head, action: angle, args: {pitch_deg: 8}}
+      - {at_ms: 480, channel: head, action: angle, args: {pitch_deg: 0}}
+
+  happy_wiggle:
+    description: "Reaction to being touched: a grin and a wiggle."
+    priority: 70
+    energetic: true
+    transition: happy
+    tags: [reaction, social]
+    duration_ms: 1200
+    steps:
+      - {at_ms: 0, channel: eyes, action: expression, args: {emotion: happy, intensity_pct: 100}}
+      - {at_ms: 100, channel: body, action: turn, args: {angle_deg: 10}}
+      - {at_ms: 350, channel: body, action: turn, args: {angle_deg: -20}}
+      - {at_ms: 600, channel: body, action: turn, args: {angle_deg: 10}}
+      - {at_ms: 850, channel: audio, action: cue, args: {sound: purr}}
+
+  startled:
+    description: Something loud or sudden. Eyes wide, head back, then a look towards it.
+    priority: 80
+    energetic: false
+    transition: focused
+    tags: [reaction]
+    duration_ms: 1100
+    steps:
+      - {at_ms: 0, channel: eyes, action: expression, args: {emotion: surprised, intensity_pct: 100}}
+      - {at_ms: 0, channel: head, action: angle, args: {pitch_deg: -14}}
+      - {at_ms: 400, channel: head, action: angle, args: {pitch_deg: 0}}
+      - {at_ms: 700, channel: eyes, action: expression, args: {emotion: focused, intensity_pct: 60}}

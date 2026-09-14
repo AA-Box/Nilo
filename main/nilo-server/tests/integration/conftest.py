@@ -1,8 +1,9 @@
 """A headless nilo-server, in-process, for the simulator end-to-end tests.
 
-"Headless" is exactly one thing: ``initialize_modules`` is stubbed out, so no VAD, ASR,
-LLM, memory or intent provider is constructed. Everything else is the production path —
-the real :class:`~core.websocket_server.WebSocketServer`, the real
+"Headless" is exactly one thing: no VAD, ASR, TTS, LLM, memory or intent provider is
+constructed. That takes **two** stubs, and for a while it only had one — see
+:func:`backend`. Everything else is the production path — the real
+:class:`~core.websocket_server.WebSocketServer`, the real
 :class:`~core.connection.ConnectionHandler`, the real ``hello`` handler, the real device
 MCP handshake and the real robot seam. A test therefore exercises the code that ships;
 what it skips is a torch model download, which no robot test needs.
@@ -30,6 +31,7 @@ from config.opus_loader import setup_opus  # noqa: E402
 
 setup_opus()
 
+import core.connection as connection  # noqa: E402
 import core.websocket_server as websocket_server  # noqa: E402
 from config.config_loader import load_config  # noqa: E402
 from core.utils.cache.config import CacheType  # noqa: E402
@@ -79,7 +81,20 @@ class Backend:
 @pytest.fixture
 async def backend(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Backend]:
     """A nilo-server listening on an ephemeral port, with the robot subsystem attached."""
+    # Two stubs, and both are load-bearing.
+    #
+    # The first is the server's shared providers. The second is the *per connection* ones:
+    # `ConnectionHandler._initialize_components` builds a TTS, an ASR, a memory and an
+    # intent provider for every session, and none of that is stubbed by the first. On a
+    # machine where those packages are not installed it fails fast and the tests pass
+    # anyway — which is why this went unnoticed on a laptop. On CI, where the full
+    # requirements are installed, it succeeds: every connection loaded real providers, the
+    # suite climbed about a gigabyte per test, and the runner was killed at 7 GB with no
+    # message beyond "The operation was canceled".
+    #
+    # No robot test speaks audio or reaches a model, so the honest stub is nothing at all.
     monkeypatch.setattr(websocket_server, "initialize_modules", lambda *args, **kwargs: {})
+    monkeypatch.setattr(connection.ConnectionHandler, "_initialize_components", lambda self: None)
 
     # Drop the cached config so each test gets its own dict, then let load_config put the
     # fresh one back: config/logger.py:setup_logging reads that cache entry from inside the

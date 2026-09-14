@@ -21,11 +21,18 @@ config/           YAML layering, NILO_* env overrides, placeholders, logging   (
 core/             session server, handlers, providers, tool system            (inherited — minimise edits)
 plugins*/         interceptor plugins and @register_function tools             (inherited)
 robot/            Nilo-owned code: protocol/ (routes), state/ (models + store + the action
-                  vocabulary), events/ (bus), devices/ (robot registry, MCP capability
-                  discovery), safety/ (limits, deterministic policy, e-stop, watchdog),
-                  actions/ (the ten semantic actions, queue, registry, executor),
-                  telemetry.py (device notifications -> world state), simulator/ (a fake
-                  robot on a real socket), runtime.py, session.py
+                  vocabulary + the world model), events/ (bus), devices/ (robot registry,
+                  MCP capability discovery), safety/ (limits, deterministic policy, e-stop,
+                  watchdog), actions/ (the ten semantic actions, queue, registry, executor),
+                  behavior/ (the utility-scored autonomy engine: tuning, scheduler, the
+                  sixteen built-in behaviours, the explain CLI), personality/ (traits, the
+                  internal control variables, the per-robot store), animation/ (YAML
+                  animations and the engine that plays them), vision/ (the snapshot
+                  perception pipeline: providers, tracker, faces, metrics), memory/ (working,
+                  episodic, semantic and person memory over SQLite), api/ (the admin API on
+                  its own port), telemetry.py (device
+                  notifications -> world state), simulator/ (a fake robot on a real socket),
+                  runtime.py, session.py
 tests/            pytest; tests/conftest.py points NILO_CONFIG at tests/fixtures/test_config.yaml.
                   tests/robot/ never opens a socket; tests/integration/ starts a real server
 ```
@@ -41,6 +48,20 @@ Rules of thumb:
 * `robot/safety/` may import `robot/state/` and nothing else from the subsystem, and it
   rejects rather than clamps. `tests/robot/test_layering.py` enforces the first;
   `tests/robot/test_safety.py` the second.
+* The behaviour engine never consults an LLM, never reads the wall clock, and never writes
+  a number into a scoring function — tuning lives in `robot/behavior/tuning.py` and a test
+  parses the source to prove it (`docs/robot-behavior.md`).
+* Memory is four stores, not one vector index, and embeddings are optional. Nothing may
+  overwrite a semantic fact blindly: every write goes through `merge_fact`, and an LLM that is
+  less confident than what is stored does not change the answer (`docs/robot-memory.md`).
+* The admin API has no endpoint that moves a robot, and its token is never the device token.
+* Vision is snapshot-based and every provider is optional: OpenCV and Ultralytics are
+  imported lazily and the defaults need nothing installed. Coordinates are normalized 0.0-1.0,
+  never pixels, and frames are ephemeral by default (`docs/robot-vision.md`).
+* Animations are YAML data under `robot/animation/library/`; adding one must never require a
+  Python change (`docs/robot-animation.md`). Personality biases which action is proposed and
+  can never reach safety — say "internal control variables", never "emotions"
+  (`docs/robot-personality.md`).
 * Backend safety is a policy filter, never a guarantee. Do not write a comment, log line or
   doc sentence implying the backend can stop a robot.
 * Device routes live only in `robot/protocol/`; never spell a path into `core/`.
@@ -57,5 +78,7 @@ mypy                      # robot/ only, strict
 python app.py             # needs data/.config.yaml or NILO_CONFIG=<file>; see docs/getting-started.md
 python -m robot.simulator --server ws://127.0.0.1:8000/nilo/v1/ --scenario person_enters_room
 python -m robot.simulator --status    # the simulated robot's own state
+python -m robot.behavior explain --situation person_arrives   # why would it do that?
+pytest tests/robot/test_memory.py -q  # memory: persistence, retrieval, consolidation, deletion
 python ../../scripts/smoke_check.py   # against a running server
 ```

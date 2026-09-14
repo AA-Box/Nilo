@@ -32,20 +32,22 @@ SERVER = ROOT / "main/nilo-server"
 # Pages whose subject is the inherited project: they may name it and describe removed paths.
 PROVENANCE_PAGES = {"migration.md", "upstream.md", "branding.md"}
 
-ENV_VARS = {"NILO_CONFIG", "NILO_SERVER_HOST", "NILO_SERVER_PORT", "NILO_HTTP_PORT", "NILO_LOG_LEVEL"}
+ENV_VARS = {
+    "NILO_CONFIG",
+    "NILO_SERVER_HOST",
+    "NILO_SERVER_PORT",
+    "NILO_HTTP_PORT",
+    "NILO_LOG_LEVEL",
+    # Read by robot/api/server.py:admin_token_from_env. Deliberately not in the config
+    # dict: manager-api mode replaces that wholesale (docs/robot-memory.md).
+    "NILO_ROBOT_ADMIN_TOKEN",
+}
 
 # Paths the documentation names as *planned* (docs/robot-roadmap.md). They must not exist yet:
 # once one does, delete it here so the normal "this path exists" rule takes over.
 PLANNED_PATHS = {
     "robot/.ruff.toml",
     "robot/agent",
-    "robot/animation",
-    "robot/api",
-    "robot/behavior",
-    "robot/memory",
-    "robot/personality",
-    "robot/vision",
-    "robot/tests/fixtures",
 }
 
 # Files allowed to contain "xiaozhi". The legacy protocol was removed, so the only legitimate
@@ -71,6 +73,9 @@ LEGACY_ALLOWED = {
 # (which is what CI checks out), but the documentation is right to name them.
 RUNTIME_PATHS = {
     "main/nilo-server/data",
+    "main/nilo-server/data/robot_memory.sqlite3",
+    "main/nilo-server/data/animations",
+    "main/nilo-server/data/robot_personality",
     "main/nilo-server/tmp",
     "data",
     "tmp",

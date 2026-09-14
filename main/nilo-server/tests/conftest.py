@@ -14,3 +14,4 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 os.environ.setdefault("NILO_CONFIG", str(_PROJECT_ROOT / "tests" / "fixtures" / "test_config.yaml"))
+

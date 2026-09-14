@@ -124,6 +124,10 @@ class SimulatedRobot:
         self._discovered = asyncio.Event()
         self._next_telemetry = 0.0
         self._next_pose = 0.0
+        # Simulated time the scenario timeline is measured from, or None while it is
+        # still waiting to be anchored. See _scenario_time.
+        self._scenario_epoch: float | None = None
+        self._expects_server = False
 
     # -- introspection, for tests and the status endpoint ---------------------------------
 
@@ -163,6 +167,7 @@ class SimulatedRobot:
             "scenario": {
                 "name": self.scenario.name,
                 "duration_s": self.scenario.duration_s,
+                "started": self._scenario_epoch is not None,
                 "steps_done": len(self.runner.history),
                 "history": [{"at_s": round(at, 2), "step": what} for at, what in self.runner.history],
             },
@@ -268,6 +273,8 @@ class SimulatedRobot:
     async def run(self) -> None:
         """Tick, connect, serve, reconnect — until the duration elapses or stop() is called."""
         await self._start_status_server()
+        # There is a server to talk to, so the scenario waits for it (see _scenario_time).
+        self._expects_server = True
         tick = asyncio.create_task(self._tick_loop(), name="simulator-tick")
         try:
             while not self._stop.is_set():
@@ -286,6 +293,7 @@ class SimulatedRobot:
                 logger.info("simulator %s: reconnecting in %.1fs", self.config.robot_id, self.config.reconnect_delay_s)
                 await asyncio.sleep(self.config.reconnect_delay_s)
         finally:
+            self._expects_server = False
             tick.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await tick
@@ -464,9 +472,11 @@ class SimulatedRobot:
         :class:`~robot.simulator.clock.ManualClock` and gets a byte-identical run every time.
         """
         now = self.clock.now()
-        await self._check_disconnect_fault(now)
+        scenario_now = self._scenario_time(now)
         self._motion_results.extend(self.state.step(dt_s, self.world, motor_failure=self.faults.motor_failure))
-        await self.runner.advance_to(now)
+        if scenario_now is not None:
+            await self._check_disconnect_fault(scenario_now)
+            await self.runner.advance_to(scenario_now)
         await self._drain_motion_results()
         await self._notify_changes()
         if now >= self._next_telemetry:
@@ -476,12 +486,44 @@ class SimulatedRobot:
             self._next_pose = now + self.config.pose_ms / 1000.0
             await self._notify("notifications/pose", self.state.pose_payload())
 
+    def _scenario_time(self, now: float) -> float | None:
+        """Scenario time, or ``None`` while the timeline is still waiting to start.
+
+        The timeline cannot run from the start of the process. A scripted run on an
+        accelerated clock reaches ``at_s=2`` a quarter of a second in, which on a slow
+        machine is still inside the WebSocket handshake and the MCP discovery — so the
+        step fires into a socket nobody is listening on, its effects are never reported,
+        and a test waiting for them waits forever. That is a race whose outcome depends on
+        how busy the host is, which is the one thing a simulator exists to remove.
+
+        So: when there is a server to talk to, the timeline starts when the server has
+        finished discovering this robot, and a reconnect does not restart it (a scenario
+        is a story, not a loop). With no server — an offline test driving :meth:`step` by
+        hand — it starts at zero, exactly as simulated time does.
+        """
+        if self._scenario_epoch is None:
+            if not self._expects_server:
+                self._scenario_epoch = 0.0
+            elif self._discovered.is_set():
+                self._scenario_epoch = now
+                logger.info(
+                    "simulator %s: scenario %s starts now (t=%.2fs, discovery complete)",
+                    self.config.robot_id,
+                    self.scenario.name,
+                    now,
+                )
+            else:
+                return None
+        return now - self._scenario_epoch
+
     async def _tick_loop(self) -> None:
         dt = self.config.tick_ms / 1000.0
         while not self._stop.is_set():
             await self.clock.sleep(dt)
             await self.step(dt)
-            now = self.clock.now()
+            # Against scenario time, so a slow handshake does not eat the run's duration.
+            elapsed = self._scenario_time(self.clock.now())
+            now = 0.0 if elapsed is None else elapsed
             if self.config.duration_s and now >= self.config.duration_s:
                 logger.info("simulator %s: duration reached at t=%.1fs", self.config.robot_id, now)
                 self.stop()

@@ -185,6 +185,10 @@ async def _add_object(host: ScenarioHost, args: dict[str, Any]) -> None:
     )
 
 
+async def _remove_object(host: ScenarioHost, args: dict[str, Any]) -> None:
+    host.world.objects.pop(str(args.get("id", "object-1")), None)
+
+
 async def _add_obstacle(host: ScenarioHost, args: dict[str, Any]) -> None:
     host.world.add_obstacle(
         Obstacle(
@@ -273,6 +277,7 @@ _ACTIONS: dict[str, Any] = {
     "spawn_person": _spawn_person,
     "remove_person": _remove_person,
     "add_object": _add_object,
+    "remove_object": _remove_object,
     "add_obstacle": _add_obstacle,
     "remove_obstacle": _remove_obstacle,
     "add_cliff": _add_cliff,
@@ -373,6 +378,45 @@ BUILTIN_SCENARIOS: dict[str, Scenario] = {
                 args={"id": "stairs", "x0_mm": 1500, "y0_mm": -500, "x1_mm": 1700, "y1_mm": 3500},
             ),
             Step(at_s=10.0, do="set_expression", args={"emotion": "scared", "intensity_pct": 90}),
+        ],
+    ),
+    "person_moves_across": Scenario(
+        name="person_moves_across",
+        description="A person walks left to right across the field of view, then back.",
+        duration_s=30.0,
+        steps=[
+            Step(at_s=2.0, do="spawn_person", args={"id": "person-1", "x_mm": 1600, "y_mm": -700}),
+            Step(at_s=5.0, do="spawn_person", args={"id": "person-1", "x_mm": 1600, "y_mm": -300}),
+            Step(at_s=8.0, do="spawn_person", args={"id": "person-1", "x_mm": 1600, "y_mm": 200}),
+            Step(at_s=11.0, do="spawn_person", args={"id": "person-1", "x_mm": 1600, "y_mm": 700}),
+            Step(at_s=14.0, do="spawn_person", args={"id": "person-1", "x_mm": 1600, "y_mm": 1100}),
+            Step(at_s=18.0, do="spawn_person", args={"id": "person-1", "x_mm": 1600, "y_mm": 400}),
+            Step(at_s=22.0, do="spawn_person", args={"id": "person-1", "x_mm": 1600, "y_mm": -400}),
+        ],
+    ),
+    "person_approaches": Scenario(
+        name="person_approaches",
+        description="A person walks towards the robot and stops within touching distance.",
+        duration_s=26.0,
+        steps=[
+            Step(at_s=2.0, do="spawn_person", args={"id": "person-1", "x_mm": 2600, "y_mm": 200}),
+            Step(at_s=6.0, do="spawn_person", args={"id": "person-1", "x_mm": 2000, "y_mm": 200}),
+            Step(at_s=10.0, do="spawn_person", args={"id": "person-1", "x_mm": 1500, "y_mm": 200}),
+            Step(at_s=14.0, do="spawn_person", args={"id": "person-1", "x_mm": 1000, "y_mm": 200}),
+            Step(at_s=18.0, do="spawn_person", args={"id": "person-1", "x_mm": 700, "y_mm": 200}),
+            Step(at_s=20.0, do="set_expression", args={"emotion": "happy", "intensity_pct": 80}),
+        ],
+    ),
+    "object_appears": Scenario(
+        name="object_appears",
+        description="Somebody puts a cube down in front of the robot, and takes it away again.",
+        duration_s=26.0,
+        steps=[
+            Step(at_s=3.0, do="add_object", args={"id": "cube-1", "x_mm": 900, "y_mm": 150, "label": "cube"}),
+            Step(at_s=5.0, do="set_expression", args={"emotion": "curious", "intensity_pct": 70}),
+            Step(at_s=14.0, do="add_object", args={"id": "cube-1", "x_mm": 1200, "y_mm": 600, "label": "cube"}),
+            Step(at_s=20.0, do="remove_object", args={"id": "cube-1"}),
+            Step(at_s=21.0, do="set_expression", args={"emotion": "confused", "intensity_pct": 60}),
         ],
     ),
     "charger_found": Scenario(

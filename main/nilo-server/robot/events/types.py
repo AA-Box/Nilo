@@ -148,6 +148,170 @@ class ActionFinished(RobotEvent):
         return self.action.succeeded
 
 
+class BehaviorEvaluated(RobotEvent):
+    """One scoring pass of the behaviour engine, in full.
+
+    The debug event: every candidate with its score and the reasons it gave, including
+    the ones that were filtered out and why. It is what
+    ``python -m robot.behavior explain`` prints and what a management API serves when
+    somebody asks why the robot is doing what it is doing.
+
+    Payloads are primitives rather than behaviour objects on purpose — ``robot/events``
+    sits below ``robot/behavior`` in the layering and may not import it.
+    """
+
+    tick: int = 0
+    mode: str = "normal"
+    #: ``name -> score``, every candidate that was scored, highest first.
+    scores: tuple[tuple[str, float], ...] = ()
+    #: ``name -> reason`` for candidates that never reached scoring.
+    rejected: tuple[tuple[str, str], ...] = ()
+    #: ``name -> (reason, ...)`` for the reasons each candidate recorded.
+    reasons: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    selected: str | None = None
+
+
+class BehaviorSelected(RobotEvent):
+    """The engine chose a behaviour. Not yet that it started — safety may still refuse."""
+
+    behavior: str
+    score: float = 0.0
+    category: str = ""
+    priority: int = 0
+    #: The runners-up, highest first. Two or three is enough to explain a decision.
+    alternatives: tuple[tuple[str, float], ...] = ()
+    reasons: tuple[str, ...] = ()
+    preempted: str | None = None
+
+
+class BehaviorStarted(RobotEvent):
+    behavior: str
+    score: float = 0.0
+    resources: tuple[str, ...] = ()
+
+
+class BehaviorCompleted(RobotEvent):
+    behavior: str
+    outcome: str = "completed"
+    detail: str = ""
+    duration_s: float = 0.0
+
+
+class BehaviorInterrupted(RobotEvent):
+    """A running behaviour was stopped before it finished. ``by`` names what took over."""
+
+    behavior: str
+    reason: str = "preempted"
+    by: str | None = None
+    duration_s: float = 0.0
+
+
+class PersonDetected(RobotEvent):
+    """A person track was confirmed. ``track_id`` is stable until the person is lost.
+
+    Vision events carry the normalized image point rather than a pixel box, and an id
+    rather than an embedding: the coordinates have to survive a change of camera, and the
+    biometric data has to stay in the face registry (docs/robot-vision.md).
+    """
+
+    track_id: str
+    x: float = 0.5
+    y: float = 0.5
+    area: float = 0.0
+    confidence: float = 1.0
+    person_id: str | None = None
+    display_name: str = ""
+
+
+class PersonLost(RobotEvent):
+    """A person track went unseen for long enough to be dropped."""
+
+    track_id: str
+    person_id: str | None = None
+    reason: str = "timeout"
+    frames_missing: int = 0
+
+
+class FaceDetected(RobotEvent):
+    track_id: str
+    x: float = 0.5
+    y: float = 0.5
+    confidence: float = 1.0
+
+
+class KnownPersonRecognized(RobotEvent):
+    """A face was matched to somebody the registry already knows."""
+
+    track_id: str
+    person_id: str
+    display_name: str = ""
+    confidence: float = 0.0
+    embedding_ref: str | None = None
+
+
+class UnknownPersonDetected(RobotEvent):
+    """A face was found and not recognized. Not an error: most faces are strangers."""
+
+    track_id: str
+    x: float = 0.5
+    y: float = 0.5
+    confidence: float = 1.0
+
+
+class ObjectDetected(RobotEvent):
+    track_id: str
+    label: str = "object"
+    x: float = 0.5
+    y: float = 0.5
+    area: float = 0.0
+    confidence: float = 1.0
+
+
+class ObjectLost(RobotEvent):
+    track_id: str
+    label: str = "object"
+    reason: str = "timeout"
+
+
+class VisionFrameProcessed(RobotEvent):
+    """One pass of the pipeline, with its latency. The metrics event.
+
+    Published for every frame, successful or not, because "perception stopped answering"
+    and "perception answered with nothing" look identical from the world model.
+    """
+
+    latency_ms: float = 0.0
+    detections: int = 0
+    tracks: int = 0
+    provider: str = ""
+    error: str = ""
+
+
+class AnimationStarted(RobotEvent):
+    """An animation began playing, and what it took ownership of while it does."""
+
+    animation: str
+    priority: int = 0
+    loop: bool = False
+    resources: tuple[str, ...] = ()
+
+
+class AnimationFinished(RobotEvent):
+    animation: str
+    outcome: str = "completed"
+    detail: str = ""
+    passes: int = 1
+    duration_s: float = 0.0
+
+
+class AnimationCancelled(RobotEvent):
+    """An animation stopped early, or never started. ``reason`` says which and why —
+    preempted, restarted, closed, or refused because something else held the head."""
+
+    animation: str
+    reason: str = "cancelled"
+
+
 class EmergencyStopChanged(RobotEvent):
     """The emergency-stop latch was engaged or cleared for one robot."""
 
@@ -158,6 +322,14 @@ class EmergencyStopChanged(RobotEvent):
 
 __all__ = [
     "ActionFinished",
+    "AnimationCancelled",
+    "AnimationFinished",
+    "AnimationStarted",
+    "BehaviorCompleted",
+    "BehaviorEvaluated",
+    "BehaviorInterrupted",
+    "BehaviorSelected",
+    "BehaviorStarted",
     "ActionStarted",
     "ActionSubmitted",
     "BatteryUpdated",
@@ -175,4 +347,12 @@ __all__ = [
     "ToolCallFailed",
     "ToolCallStarted",
     "ToolDiscovered",
+    "FaceDetected",
+    "KnownPersonRecognized",
+    "ObjectDetected",
+    "ObjectLost",
+    "PersonDetected",
+    "PersonLost",
+    "UnknownPersonDetected",
+    "VisionFrameProcessed",
 ]
