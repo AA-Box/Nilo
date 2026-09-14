@@ -43,6 +43,8 @@ if TYPE_CHECKING:  # pragma: no cover - imported lazily below to keep the graph 
     from robot.animation.engine import AnimationEngine
     from robot.behavior.base import AutonomyMode
     from robot.behavior.engine import BehaviorEngine
+    from robot.memory.service import RobotMemory
+    from robot.memory.store import MemoryStore
     from robot.personality.model import PersonalityModel
     from robot.vision.pipeline import VisionPipeline
 
@@ -67,6 +69,7 @@ class RobotRuntime:
         capabilities: RobotCapabilityRegistry | None = None,
         discovery_timeout: float = DEFAULT_DISCOVERY_TIMEOUT,
         personality_store: Any = None,
+        memory_store: Any = None,
     ) -> None:
         self._events = events or EventBus()
         self._store = store or InMemoryRobotStateStore()
@@ -85,6 +88,8 @@ class RobotRuntime:
         self._personality_store = personality_store
         self._animations: dict[str, AnimationEngine] = {}
         self._vision: dict[str, VisionPipeline] = {}
+        self._memories: dict[str, RobotMemory] = {}
+        self._memory_store: MemoryStore | None = memory_store
         self._autonomy: AutonomyMode | None = None
         self._closed = False
 
@@ -193,6 +198,24 @@ class RobotRuntime:
             )
             self._animations[robot_id] = engine
         return engine
+
+    async def memory(self, robot_id: str) -> RobotMemory | None:
+        """Long-term memory for one robot, or ``None`` when this runtime has no store.
+
+        Persistence is opt-in, like personality: a runtime built without a store has no
+        long-term memory rather than quietly creating a database under ``data/``. The
+        store is opened on first use, which is also when migrations run.
+        """
+        if self._memory_store is None:
+            return None
+        from robot.memory.service import RobotMemory
+
+        memory = self._memories.get(robot_id)
+        if memory is None:
+            memory = RobotMemory(robot_id, self._memory_store)
+            await memory.open()
+            self._memories[robot_id] = memory
+        return memory
 
     def vision(self, robot_id: str, **options: Any) -> VisionPipeline:
         """The vision pipeline for one robot, created on first use.
@@ -404,6 +427,11 @@ class RobotRuntime:
         engines, self._behaviors = list(self._behaviors.values()), {}
         for engine in engines:
             await engine.aclose()
+        memories, self._memories = list(self._memories.values()), {}
+        for memory in memories:
+            await memory.aclose()
+        if self._memory_store is not None:
+            await self._memory_store.aclose()
         pipelines, self._vision = list(self._vision.values()), {}
         for pipeline in pipelines:
             await pipeline.aclose()

@@ -18,7 +18,7 @@ label in front of it:
 | Perception / Vision | **Implemented** | `robot/vision/` — snapshot pipeline, provider protocols, tracking with stable ids, normalized coordinates, face identity, latency metrics; see [robot-vision.md](robot-vision.md). The VLLM seam (`core/api/vision_handler.py`) is still the inherited one-shot explainer |
 | Perception / Sensors | **Planned** | `robot/state/models.py` types the sensor state; nothing produces it yet |
 | World Model | **Implemented** | `robot/state/` — per-robot state, plus `robot/state/world.py`: entities with confidence and a decay schedule, attention, interactions, environment; written from events by `robot/state/world_model.py`. See [robot-behavior.md](robot-behavior.md) |
-| Memory (robot-scoped) | **Planned** | conversation memory exists (`core/providers/memory/`); spatial, episodic and person memory do not |
+| Memory (robot-scoped) | **Implemented** | `robot/memory/` — working, episodic, semantic and person memory over SQLite with migrations, optional embeddings, budgeted retrieval and provenance-tracked consolidation; see [robot-memory.md](robot-memory.md) |
 | Behavior Engine | **Implemented** | `robot/behavior/` — deterministic utility scoring, sixteen behaviours, four autonomy modes, no LLM anywhere in it; see [robot-behavior.md](robot-behavior.md) |
 | Personality and internal state | **Implemented** | `robot/personality/` — six stable traits, seven decaying control variables, persisted per robot; see [robot-personality.md](robot-personality.md) |
 | Expressive animation | **Implemented** | `robot/animation/` — YAML animations, priority and resource ownership, transitions, the low-energy gate; see [robot-animation.md](robot-animation.md) |
@@ -29,9 +29,9 @@ Concretely: `main/nilo-server/robot/` holds the protocol registry, the robot dom
 (`robot/state/`, `robot/events/`, `robot/devices/`), the simulator (`robot/simulator/`), the
 action and safety layers (`robot/actions/`, `robot/safety/`), the world model and the
 behaviour engine (`robot/state/world.py`, `robot/behavior/`), personality and animation
-(`robot/personality/`, `robot/animation/`), vision (`robot/vision/`) and the two modules
-that wire it all into a session (`robot/runtime.py`, `robot/session.py`). There is no robot
-memory and no LLM-facing bridge yet. Nothing here is running code unless it
+(`robot/personality/`, `robot/animation/`), vision (`robot/vision/`), memory and the admin
+API (`robot/memory/`, `robot/api/`) and the two modules that wire it all into a session
+(`robot/runtime.py`, `robot/session.py`). There is no LLM-facing bridge yet. Nothing here is running code unless it
 is marked **Implemented**. Planned module paths below are written **without backticks** on
 purpose: `scripts/check_docs.py` fails the build when a backticked repository path does not
 exist, and these do not exist yet.
@@ -725,6 +725,7 @@ Stated so that nothing here is an undocumented assumption.
 [robot-personality.md](robot-personality.md) — traits, control variables and what they may influence ·
 [robot-animation.md](robot-animation.md) — writing an animation without writing Python ·
 [robot-vision.md](robot-vision.md) — the perception pipeline, tracking and follow ·
+[robot-memory.md](robot-memory.md) — the four memory stores, retrieval and the admin API ·
 [safety.md](safety.md) — the safety split, and what firmware must implement itself ·
 [protocol.md](protocol.md) — the device wire protocol and the route registry ·
 [mcp.md](mcp.md) — the tool channel robot commands ride on ·
