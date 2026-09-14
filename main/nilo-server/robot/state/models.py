@@ -286,8 +286,27 @@ class RobotTelemetry(Timestamped):
         return self.model_copy(update=updates)
 
     def changed_fields(self, previous: RobotTelemetry) -> tuple[str, ...]:
+        """Which blocks actually hold a different value than they did.
+
+        The timestamp is excluded from the comparison, and that is the whole point. Every
+        block is :class:`Timestamped`, so a device that re-sends the same numbers five
+        times a second produces five *unequal* objects; comparing them whole made
+        ``changed`` mean "present in the patch" rather than "different", and every
+        subscriber — the world model, the metrics fold, anything watching
+        :class:`~robot.events.types.BatteryUpdated` — was woken for a battery that had not
+        moved.
+        """
         names = ("pose", "motion", "battery", "sensors", "audio", "vision", "expression", "activity")
-        return tuple(name for name in names if getattr(self, name) != getattr(previous, name))
+        return tuple(name for name in names if _differs(getattr(self, name), getattr(previous, name)))
+
+
+def _differs(current: Any, previous: Any) -> bool:
+    """Whether two telemetry blocks hold different values, ignoring when they were written."""
+    if current is None or previous is None:
+        return current is not previous
+    if isinstance(current, Timestamped) and isinstance(previous, Timestamped):
+        return current.model_dump(exclude={"updated_at"}) != previous.model_dump(exclude={"updated_at"})
+    return bool(current != previous)
 
 
 class RobotState(Timestamped):

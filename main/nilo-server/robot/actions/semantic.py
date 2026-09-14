@@ -78,7 +78,7 @@ class RobotHandle:
         """A handle onto the same robot that attributes its actions to another source.
 
         Attribution only. A different source does not buy a different answer from safety
-        (docs/safety.md): the LLM cannot obtain what a behaviour would be refused.
+        (docs/safety-model.md): the LLM cannot obtain what a behaviour would be refused.
         """
         return RobotHandle(
             self._executor, self.robot_id, source=source, priority=priority or self.priority

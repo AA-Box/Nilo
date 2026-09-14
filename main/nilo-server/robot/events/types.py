@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from robot.correlation import current_correlation_id
 from robot.state.actions import ActionRecord
 from robot.state.models import (
     DisconnectReason,
@@ -36,6 +37,10 @@ class RobotEvent(BaseModel):
     event_id: str = Field(default_factory=lambda: uuid4().hex)
     occurred_at: datetime = Field(default_factory=utcnow)
     robot_id: str
+    #: The trace the event belongs to, or ``""`` when nothing was being traced. Stamped
+    #: from the ambient context at construction, so no publisher has to pass one
+    #: (``robot/correlation.py``).
+    correlation_id: str = Field(default_factory=current_correlation_id)
 
     @property
     def name(self) -> str:
@@ -407,6 +412,10 @@ class UtteranceRecognized(RobotEvent):
     text: str
     person_id: str | None = None
     speaker: str = ""
+    #: How long recognition took, when the session reported it. ``0`` means unknown, not
+    #: instant: only the inherited ASR path measures this, and a test that calls the voice
+    #: loop directly does not.
+    latency_ms: float = 0.0
 
 
 class SpeechStarted(RobotEvent):

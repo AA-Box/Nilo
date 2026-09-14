@@ -11,7 +11,7 @@ architecture (robot-architecture.md Sect. 2.6), not a fallback.
 
 Related pages: [robot-architecture.md](robot-architecture.md) for where this sits,
 [robot-actions.md](robot-actions.md) for the layer underneath it,
-[safety.md](safety.md) for the layer underneath *that*, which behaviours cannot reach.
+[safety-model.md](safety-model.md) for the layer underneath *that*, which behaviours cannot reach.
 
 ---
 
@@ -331,6 +331,6 @@ reached from here: `robot/behavior/` may import `robot/actions/`, `robot/state/`
 (`main/nilo-server/tests/robot/test_layering.py`). A behaviour scoring 1.0 still has its
 move rejected on a cliff, at a stale sensor frame, or under an engaged emergency stop —
 and the rejection reads the same whether a behaviour, the LLM or an operator asked
-([safety.md](safety.md)).
+([safety-model.md](safety-model.md)).
 
 Backend safety is a policy filter, never a guarantee. Nothing in this page changes that.

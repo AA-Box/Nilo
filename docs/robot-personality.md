@@ -10,9 +10,9 @@ likely. Every log line, docstring and comment in `robot/personality/` is written
 deliberately: a system that claims feelings it does not have is lying to the person who
 owns it, and that is not a trade we make for charm.
 
-Related: [robot-behavior.md](robot-behavior.md) (what reads these numbers),
+Related: [behavior-system.md](behavior-system.md) (what reads these numbers),
 [robot-animation.md](robot-animation.md) (what the energy variable gates),
-[safety.md](safety.md) (the layer none of this can reach).
+[safety-model.md](safety-model.md) (the layer none of this can reach).
 
 ---
 
@@ -102,7 +102,7 @@ ten: the sensor path is edge-triggered, or arousal would saturate on a single cl
 ## 3. Influence on behaviour
 
 The behaviour engine reads the control variables as `Drives`
-([robot-behavior.md](robot-behavior.md)). Traits reach behaviour **through** them: a
+([behavior-system.md](behavior-system.md)). Traits reach behaviour **through** them: a
 sociable robot rests at a higher `social_need`, and the greeting score reads `social_need`.
 That is one mechanism rather than two, and it is why a trait change is visible over the
 next few minutes rather than instantly.

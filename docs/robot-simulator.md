@@ -149,7 +149,7 @@ contract the firmware will have to meet:
 * **No parameter names a raw actuator.** No PWM, no duty cycle, no servo microseconds, no
   wheel speeds, no coil voltages. `tests/robot/test_simulator.py` asserts this over every
   published schema; it is the mechanical form of the rule that the LLM never controls
-  motors ([robot-architecture.md](robot-architecture.md), [safety.md](safety.md)).
+  motors ([robot-architecture.md](robot-architecture.md), [safety-model.md](safety-model.md)).
 
 ---
 
@@ -515,7 +515,7 @@ Stated plainly, because a simulator's limits are the limits of every test that u
   exercised by a real device and by `scripts/smoke_check.py`.
 * **No real dynamics.** No acceleration ramp, no wheel slip, no mass, no motor current.
   Speed is reached instantly and held exactly. The real firmware owns acceleration limits
-  ([safety.md](safety.md)); a backend test should not depend on the shape of that ramp.
+  ([safety-model.md](safety-model.md)); a backend test should not depend on the shape of that ramp.
 * **No localization error.** The pose is exact by construction. Real odometry drifts, and a
   behaviour that only works with a perfect pose will not work on hardware.
 * **2D only.** No pitch, no roll, no ramps, no stairs beyond "the floor is not there".

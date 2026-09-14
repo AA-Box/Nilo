@@ -113,6 +113,10 @@ class ScenarioHost(Protocol):
 
     async def drop_connection(self, *, reconnect: bool) -> None: ...
 
+    async def say(self, text: str) -> None: ...
+
+    async def interrupt(self) -> None: ...
+
 
 class ScenarioRunner:
     """Plays a scenario's steps against a host as simulated time passes.
@@ -269,6 +273,20 @@ async def _disconnect(host: ScenarioHost, args: dict[str, Any]) -> None:
     await host.drop_connection(reconnect=bool(args.get("reconnect", True)))
 
 
+async def _say(host: ScenarioHost, args: dict[str, Any]) -> None:
+    """Somebody in the room says something to the robot.
+
+    The recognizer's *output*, not audio: the simulator has no microphone and no model,
+    and what a device with on-board recognition puts on the wire is this text.
+    """
+    await host.say(str(args.get("text", "hello")))
+
+
+async def _interrupt(host: ScenarioHost, args: dict[str, Any]) -> None:
+    """Somebody talks over the robot. The ``abort`` frame, as a scenario step."""
+    await host.interrupt()
+
+
 async def _log(host: ScenarioHost, args: dict[str, Any]) -> None:
     logger.info("scenario note: %s", args.get("message", ""))
 
@@ -292,6 +310,8 @@ _ACTIONS: dict[str, Any] = {
     "set_picked_up": _set_picked_up,
     "fault": _fault,
     "disconnect": _disconnect,
+    "say": _say,
+    "interrupt": _interrupt,
     "log": _log,
 }
 
@@ -317,6 +337,23 @@ BUILTIN_SCENARIOS: dict[str, Scenario] = {
             Step(at_s=6.0, do="play_animation", args={"name": "greet", "duration_s": 2.0}),
             Step(at_s=10.0, do="spawn_person", args={"id": "person-1", "x_mm": 900, "y_mm": 250}),
             Step(at_s=16.0, do="set_expression", args={"emotion": "curious", "intensity_pct": 60}),
+        ],
+    ),
+    "conversation": Scenario(
+        name="conversation",
+        description=(
+            "A person greets the robot, asks it to come closer, and talks over its answer. "
+            "Needs a language model configured; with none, the robot stays quiet and "
+            "everything else still runs."
+        ),
+        duration_s=30.0,
+        steps=[
+            Step(at_s=2.0, do="spawn_person", args={"id": "person-1", "x_mm": 1600, "y_mm": 100}),
+            Step(at_s=4.0, do="say", args={"text": "hello there"}),
+            Step(at_s=10.0, do="say", args={"text": "come a little closer"}),
+            Step(at_s=18.0, do="say", args={"text": "tell me what you can see"}),
+            Step(at_s=19.0, do="interrupt", args={}),
+            Step(at_s=21.0, do="say", args={"text": "never mind, stop"}),
         ],
     ),
     "person_leaves_room": Scenario(

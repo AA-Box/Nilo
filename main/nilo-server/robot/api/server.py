@@ -13,7 +13,7 @@ Four rules, each of them from robot-architecture §4.2 and §4.3:
 * **Its own credential.** The admin token is distinct from the device-token signing key.
   The OTA endpoint is unauthenticated and, with auth enabled, will mint a valid token for
   whatever device id the caller asks for — so "the caller holds a valid device token"
-  authorizes nothing here (docs/safety.md).
+  authorizes nothing here (docs/safety-model.md).
 * **Control is gated three ways.** A token, a loopback rule, and a rate limit
   (:mod:`robot.api.security`). Read endpoints need only the first.
 * **aiohttp is imported lazily.** ``import robot.api`` costs nothing in a process that
@@ -24,7 +24,7 @@ could not. What has not changed is where the decision is made: every control req
 becomes a typed action submitted to the same executor and judged by the same safety policy
 as a behaviour's own command (:mod:`robot.api.control`). An operator with the admin token
 cannot obtain what the policy would refuse a model, and the emergency stop is a request
-the firmware watchdog backs — not a guarantee this process can make (docs/safety.md).
+the firmware watchdog backs — not a guarantee this process can make (docs/safety-model.md).
 """
 
 from __future__ import annotations
@@ -127,6 +127,41 @@ def build_app(
         """Unauthenticated on purpose: a liveness probe is not an admin operation, and it
         returns nothing about any robot."""
         return web.json_response({"status": "ok", "robots": len(await _robot_ids(runtime))})
+
+    @routes.get("/ready")
+    async def ready(request: web.Request) -> web.Response:
+        """Readiness, as distinct from liveness: is this process able to serve?
+
+        Unauthenticated for the same reason ``/health`` is — an orchestrator's probe has
+        no credential — and it says nothing about any individual robot. A runtime that has
+        been closed is alive but will refuse every request, which is exactly the state a
+        rolling deployment needs to see before it sends traffic.
+        """
+        ready_now = not runtime.closed
+        payload = {
+            "status": "ready" if ready_now else "closed",
+            "robots_connected": len(await _robot_ids(runtime)),
+        }
+        return web.json_response(payload, status=200 if ready_now else 503)
+
+    @routes.get("/metrics")
+    async def metrics(request: web.Request) -> web.Response:
+        """The Prometheus scrape.
+
+        Authorized as a read: the numbers name robots, tools and behaviours, which is
+        operational detail about a household, not public information. A scraper is
+        configured with the admin token exactly as the dashboard is (docs/observability.md).
+        """
+        authorize(request)
+        return web.Response(
+            text=runtime.metrics.render(), content_type="text/plain", charset="utf-8"
+        )
+
+    @routes.get("/api/metrics")
+    async def metrics_json(request: web.Request) -> web.Response:
+        """The same numbers as JSON, for the dashboard and for a test."""
+        authorize(request)
+        return web.json_response(runtime.metrics.snapshot())
 
     @routes.get("/api/meta")
     async def meta(request: web.Request) -> web.Response:

@@ -3,7 +3,7 @@
 Four kinds of memory, because remembering is four different problems — and a set of rules
 about what is allowed to change what the robot believes.
 
-Related: [robot-behavior.md](robot-behavior.md) (what reads the world model, which is a
+Related: [behavior-system.md](behavior-system.md) (what reads the world model, which is a
 different thing), [robot-vision.md](robot-vision.md) (where a `person_id` comes from),
 [robot-architecture.md](robot-architecture.md) (where this sits).
 
@@ -220,7 +220,7 @@ curl -H "Authorization: Bearer $NILO_ROBOT_ADMIN_TOKEN" \
   signing key.
   The OTA endpoint is unauthenticated and, with auth enabled, will mint a valid token for
   whatever device id a caller asks for — so holding a valid *device* token authorizes
-  nothing here ([safety.md](safety.md)). Comparison is constant-time; a misconfigured API
+  nothing here ([safety-model.md](safety-model.md)). Comparison is constant-time; a misconfigured API
   with no token fails **closed**.
 * **Its own port**, bound to loopback by default. Routes are never added to
   `core/http_server.py`, which serves device traffic.

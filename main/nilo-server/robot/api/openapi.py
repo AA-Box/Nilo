@@ -126,6 +126,31 @@ def document(security: Any = None) -> dict[str, Any]:
                 "security": [],
             }
         },
+        "/ready": {
+            "get": {
+                "summary": "Readiness. Unauthenticated; 503 once the runtime is closed.",
+                "tags": ["system"],
+                "responses": {
+                    "200": {"description": "Ready to serve."},
+                    "503": {"description": "The runtime is closed."},
+                },
+                "security": [],
+            }
+        },
+        "/metrics": {
+            "get": {
+                "summary": "Prometheus exposition. Authorized as a read.",
+                "tags": ["system"],
+                "responses": {"200": {"description": "OK."}},
+            }
+        },
+        "/api/metrics": {
+            "get": {
+                "summary": "The same numbers as JSON.",
+                "tags": ["system"],
+                "responses": {"200": {"description": "OK."}},
+            }
+        },
         "/api/meta": {
             "get": {
                 "summary": "What this binding allows: host, control, authentication, rate limit.",

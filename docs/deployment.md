@@ -340,6 +340,41 @@ answer `404`, reports how an unknown WebSocket path is treated, and exits non-ze
 The OTA `GET` page is the fastest way to confirm that `server.websocket` resolves to an address your
 devices can actually reach.
 
+### Health, readiness and metrics
+
+The robot management API serves the three endpoints an orchestrator and a scrape need. It
+runs on its own port (8010 by default), and the first two are the only unauthenticated
+routes on it:
+
+```bash
+curl -fsS http://<host>:8010/health     # liveness: the process is serving
+curl -fsS http://<host>:8010/ready      # readiness: 503 once the runtime is closed
+curl -fsS -H "Authorization: Bearer $NILO_ROBOT_ADMIN_TOKEN" http://<host>:8010/metrics
+```
+
+`/health` and `/ready` differ exactly once, and it is the case that matters: during
+shutdown the process is alive and the robot runtime is closed, so a rolling deployment
+should stop sending it traffic before it stops answering at all. Neither says anything
+about any individual robot, which is why neither needs a credential.
+
+`/metrics` is Prometheus text exposition and **is** authorized — the labels name tools,
+behaviours and disconnect reasons, which is operational detail about a household. Point a
+scraper at it with the admin token:
+
+```yaml
+scrape_configs:
+  - job_name: nilo
+    authorization:
+      credentials_file: /run/secrets/nilo-robot-admin-token
+    static_configs:
+      - targets: ['nilo-server:8010']
+```
+
+What each metric means, and the three whose obvious reading is wrong:
+[observability.md](observability.md).
+
 Related pages: [getting-started.md](getting-started.md) for a first local run,
+[robot-getting-started.md](robot-getting-started.md) for a first robot,
 [configuration.md](configuration.md) for the full key reference, [protocol.md](protocol.md) for the
-device-facing routes and messages, and [testing.md](testing.md) for what CI checks.
+device-facing routes and messages, [observability.md](observability.md) for metrics and tracing,
+and [testing.md](testing.md) for what CI checks.

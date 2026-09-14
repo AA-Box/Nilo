@@ -27,6 +27,8 @@ from robot.devices.mcp import McpError, McpUnsupportedError
 from robot.devices.registry import RobotRegistry
 from robot.devices.tools import RobotCapabilityRegistry, ToolChannel
 from robot.events.bus import EventBus
+from robot.metrics import MetricRegistry
+from robot.observability import RobotObserver
 from robot.events.types import ToolCallCompleted, ToolCallFailed, ToolCallStarted
 from robot.state.models import (
     DeviceInfo,
@@ -77,6 +79,8 @@ class RobotRuntime:
         llm: LLMProvider | None = None,
         tool_policy: ToolPolicy | None = None,
         limits: Any = None,
+        metrics: MetricRegistry | None = None,
+        observe: bool = True,
     ) -> None:
         self._events = events or EventBus()
         self._store = store or InMemoryRobotStateStore()
@@ -112,6 +116,11 @@ class RobotRuntime:
         self._voice: dict[str, VoiceLoop] = {}
         self._llm = llm
         self._tool_policy = tool_policy
+        # Observability is one subscriber on the same bus, attached when the first device
+        # does (subscribing needs a running loop). A runtime built with `observe=False`
+        # records nothing, which is what a unit test that counts subscriptions wants.
+        self._metrics = metrics if metrics is not None else MetricRegistry()
+        self._observer = RobotObserver(self._metrics) if observe else None
         self._closed = False
 
     @property
@@ -121,6 +130,16 @@ class RobotRuntime:
     @property
     def events(self) -> EventBus:
         return self._events
+
+    @property
+    def metrics(self) -> MetricRegistry:
+        """Everything the management API's ``/metrics`` endpoint renders."""
+        return self._metrics
+
+    @property
+    def observer(self) -> RobotObserver | None:
+        """The event-to-metrics subscriber, or ``None`` when this runtime does not observe."""
+        return self._observer
 
     @property
     def registry(self) -> RobotRegistry:
@@ -395,6 +414,8 @@ class RobotRuntime:
             raise RuntimeError("robot runtime is closed")
         # Subscribing needs a running loop, which __init__ cannot assume it has.
         self._world.attach(self._events)
+        if self._observer is not None:
+            self._observer.attach(self._events)
         robot_id = device.robot_id
         state = await self._registry.register(device.identity(), device.connection())
         previous_channel = self._channels.get(robot_id)
@@ -530,6 +551,8 @@ class RobotRuntime:
         dispatches, so nothing is still trying to call a channel that is about to close.
         """
         self._closed = True
+        if self._observer is not None:
+            self._observer.detach(self._events)
         self._voice.clear()
         arbiters, self._speech = list(self._speech.values()), {}
         for arbiter in arbiters:

@@ -5,6 +5,9 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-ra"
+markers = [
+    "e2e: the end-to-end scenario suite (a real server, a real socket, a simulated robot)",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]

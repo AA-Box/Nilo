@@ -3,9 +3,9 @@
 Snapshots in, tracked entities and events out — with nothing heavyweight required to run
 it, and nothing in it able to command the robot.
 
-Related: [robot-behavior.md](robot-behavior.md) (what reads the world model vision writes),
+Related: [behavior-system.md](behavior-system.md) (what reads the world model vision writes),
 [robot-simulator.md](robot-simulator.md) (where the test frames come from),
-[safety.md](safety.md) (why perception is never a safety input on its own).
+[safety-model.md](safety-model.md) (why perception is never a safety input on its own).
 
 ---
 
@@ -222,6 +222,6 @@ with nothing" look identical from the world model otherwise.
 ## 11. What vision is not
 
 It is not a safety input. The safety policy gates motion on range and cliff **sensors**,
-not on whether a detector saw something ([safety.md](safety.md)). A missed detection must
+not on whether a detector saw something ([safety-model.md](safety-model.md)). A missed detection must
 never be the only thing standing between a robot and a staircase, and in this design it
 never is.

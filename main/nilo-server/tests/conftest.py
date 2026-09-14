@@ -15,3 +15,9 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 os.environ.setdefault("NILO_CONFIG", str(_PROJECT_ROOT / "tests" / "fixtures" / "test_config.yaml"))
 
+# The inherited session server logs every device frame at INFO, which for the end-to-end
+# suite means a megabyte of tool schemas per test and a failure report nobody can read.
+# `setdefault`, so `NILO_LOG_LEVEL=INFO pytest ...` still gets the noise back when a
+# failure needs it.
+os.environ.setdefault("NILO_LOG_LEVEL", "WARNING")
+

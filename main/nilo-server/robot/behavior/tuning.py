@@ -1,7 +1,7 @@
 """Every number the behaviour engine compares against, in one place.
 
 The rule this file exists to enforce: **no numeric constant is written inside a behaviour**
-(docs/robot-behavior.md). A magic ``0.8`` buried in a scoring function is a value nobody
+(docs/behavior-system.md). A magic ``0.8`` buried in a scoring function is a value nobody
 can find, nobody can change without a deploy, and nobody can tell apart from a typo. Each
 one here has a name, a default, a unit in that name, and a comment saying what moving it
 does.

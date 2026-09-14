@@ -156,6 +156,15 @@ async def main():
     finally:
         await gc_manager.stop()
 
+        # The robot subsystem first: closing it cancels discovery, stops the action pump
+        # and its watchdog thread, closes every memory store and drains the event bus.
+        # Without this the process exits with those still running and SQLite is closed by
+        # the interpreter shutting down rather than by us (docs/robot-architecture.md R5).
+        try:
+            await asyncio.wait_for(get_runtime().aclose(), timeout=5.0)
+        except Exception as error:  # a subsystem that will not close must not hang the exit
+            logger.bind(tag=TAG).warning("closing the robot runtime failed: {}", error)
+
         if robot_api_task.done() and not robot_api_task.cancelled() and robot_api_task.exception() is None:
             await robot_api_task.result().cleanup()
         stdin_task.cancel()

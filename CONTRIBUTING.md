@@ -49,7 +49,7 @@ through the smallest possible hook.
 * **The LLM never controls motors.** It requests semantic actions (`move`, `turn`, `look_at`,
   `follow`, `play_animation`, `stop`) with bounded parameters; the device executes trajectories and
   owns acceleration limits, collision and cliff avoidance, watchdogs and emergency stop. See
-  [`docs/safety.md`](docs/safety.md).
+  [`docs/safety-model.md`](docs/safety-model.md).
 * **English only** in code, comments, log lines, and documentation. Existing Chinese text is
   functional data and is documented in [`docs/migration.md`](docs/migration.md).
 * **No product name in domain code.** `RobotSession`, not `NiloRobotSession`. Kivo-era and upstream

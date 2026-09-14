@@ -16,7 +16,7 @@ The bands, and why each behaviour is in the one it is:
     IDLE      idle                           the floor: what is left when nothing is worth doing.
 
 Safety is not in this table. It is a layer below, it cannot be scored against, and the
-highest-scoring behaviour here still gets its move rejected on a cliff (docs/safety.md).
+highest-scoring behaviour here still gets its move rejected on a cliff (docs/safety-model.md).
 """
 
 from __future__ import annotations

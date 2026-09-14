@@ -171,7 +171,7 @@ A token is `<urlsafe-base64 HMAC-SHA256 of "client_id|device_id|timestamp">.<tim
 carries no plaintext identifiers, and the device sends `device-id`, `client-id` and
 `Authorization: Bearer <token>` separately. With `auth.enabled: true` and a non-empty
 `allowed_devices`, listed devices receive an empty token and are let through by device ID; every
-other device is issued and then checked against a real token. See [safety.md](safety.md).
+other device is issued and then checked against a real token. See [safety-model.md](safety-model.md).
 
 ## Logging
 

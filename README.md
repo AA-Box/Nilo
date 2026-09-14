@@ -47,7 +47,7 @@ than a smart speaker. The direction is described in [docs/robot-architecture.md]
   `main/nilo-server/robot/behavior/`): tracked entities with a decay schedule, and deterministic
   utility-scored autonomy — sixteen behaviours, four autonomy modes, seeded randomness, and
   `python -m robot.behavior explain` to ask why it chose what it chose. **No LLM is involved in
-  deciding what the robot does** ([docs/robot-behavior.md](docs/robot-behavior.md))
+  deciding what the robot does** ([docs/behavior-system.md](docs/behavior-system.md))
 * Robot personality and expressive animation (`main/nilo-server/robot/personality/`,
   `main/nilo-server/robot/animation/`): six stable traits and seven internal control variables that
   decay towards trait-derived baselines, plus animations defined as YAML data — adding one is adding
@@ -74,7 +74,7 @@ than a smart speaker. The direction is described in [docs/robot-architecture.md]
 * Robot safety policy (`main/nilo-server/robot/safety/`): deterministic admission against configurable limits and
   live sensor state, typed rejections (never silent clamping), a sticky emergency-stop latch, and a supervisory
   watchdog on its own thread. A **policy filter, not a guarantee** — firmware owns every guarantee
-  ([docs/safety.md](docs/safety.md))
+  ([docs/safety-model.md](docs/safety-model.md))
 
 * Robot agent (`main/nilo-server/robot/agent/`): the LLM seam. Fourteen semantic tools with
   strict argument validation and live safety bounds in their schemas, four permission classes
@@ -91,8 +91,16 @@ than a smart speaker. The direction is described in [docs/robot-architecture.md]
   and Opus pipeline is reused unchanged; the seam is two calls, both of which never raise
   ([docs/robot-voice.md](docs/robot-voice.md))
 
+* End-to-end integration and observability: ten scenarios that run a real server, a real
+  socket and a real simulated robot with local fakes for ASR, TTS, LLM and vision — startup,
+  conversation, a voice-commanded move, an autonomous greeting, boredom, a cliff, a low
+  battery, a barge-in, a dead model and a reconnect — plus metrics and one correlation id
+  from an utterance to the device's answer ([docs/observability.md](docs/observability.md),
+  [docs/testing.md](docs/testing.md))
+
 **Planned:** the physical robot firmware. See
-[docs/robot-roadmap.md](docs/robot-roadmap.md).
+[docs/robot-roadmap.md](docs/robot-roadmap.md). What actually runs today, with the test that
+proves each line: [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ## Architecture
 
@@ -207,7 +215,7 @@ acceleration constraints and a local emergency stop must be implemented independ
 firmware, because this process can be killed or stalled mid-motion. Do not connect a machine
 that can hurt someone and rely on the backend to stop it. See
 [docs/robot-actions.md](docs/robot-actions.md), [docs/robot-architecture.md](docs/robot-architecture.md)
-and [docs/safety.md](docs/safety.md).
+and [docs/safety-model.md](docs/safety-model.md).
 
 ## Development
 
@@ -224,10 +232,13 @@ as little as possible. Layout, conventions and where things go: [docs/developmen
 
 ## Testing
 
-`pytest -q` in `main/nilo-server` (the robot, simulator and end-to-end suites included);
-`make test`, `make lint`, `make typecheck` from the repository root; `scripts/smoke_check.py`
-against a running server. CI runs lint + mypy, the suite on Python 3.12 with full and with
-dev-only dependencies, and validates the Compose file. Details: [docs/testing.md](docs/testing.md).
+`pytest -q` in `main/nilo-server` (the robot, integration and end-to-end suites included);
+`make test`, `make e2e`, `make lint`, `make typecheck` from the repository root;
+`scripts/smoke_check.py` against a running server. `make e2e` also writes
+`main/nilo-server/tmp/e2e-report.md`: every state transition of all ten scenarios, taken
+from the running system's own event bus. CI runs lint + mypy, the suite on Python 3.12 with
+full and with dev-only dependencies, the scenarios on their own, and validates the Compose
+file. Details: [docs/testing.md](docs/testing.md).
 
 ## Docker
 
@@ -248,7 +259,9 @@ bring-up. Acceptance criteria per phase: [docs/robot-roadmap.md](docs/robot-road
 
 ## Documentation
 
-Start at [docs/getting-started.md](docs/getting-started.md). The full tree: architecture,
+Start at [docs/getting-started.md](docs/getting-started.md) for the server, or
+[docs/robot-getting-started.md](docs/robot-getting-started.md) to go from `git clone` to a
+simulated robot that talks, moves and decides for itself. The full tree: architecture,
 configuration, development, deployment, protocol, MCP, audio, providers, robot architecture,
 robot simulator, safety, testing, upstream provenance, branding, migration — all under
 [docs/](docs/).

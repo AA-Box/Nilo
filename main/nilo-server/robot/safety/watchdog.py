@@ -11,7 +11,7 @@ That thread does not make the watchdog authoritative. The GIL means a long C-lev
 stalls this thread too, and a process that is killed supervises nothing at all. **The
 authoritative watchdog is in firmware**, where loss of heartbeat stops the motors with no
 round trip. This one is the backend noticing that a device never reported back, so an
-action can be marked ``TIMED_OUT`` and a stop can be *attempted*. See docs/safety.md.
+action can be marked ``TIMED_OUT`` and a stop can be *attempted*. See docs/safety-model.md.
 
 Callbacks run on the watchdog thread. A caller that needs to touch an event loop supplies
 a callback that hops there itself — :class:`~robot.actions.executor.RobotActionExecutor`

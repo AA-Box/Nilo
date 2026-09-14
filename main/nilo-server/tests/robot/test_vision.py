@@ -540,7 +540,7 @@ async def test_the_device_reply_shape_decodes_into_a_frame():
     assert frame is not None
     assert frame.width == 160
     assert frame.data is not None and frame.data.startswith(b"\x89PNG")
-    assert calls == [("robot.camera.capture", {})]
+    assert calls == [("robot_camera_capture", {})]
 
 
 @pytest.mark.parametrize("reply", ["not json", "{}", '{"image_base64": ""}', '{"image_base64": "!!!"}'])

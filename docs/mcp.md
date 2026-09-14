@@ -498,7 +498,7 @@ are worth stating now because they are cheap to honour and expensive to retrofit
 * **The backend validates before forwarding.** A planned safety policy sits between
   `ToolManager.execute_tool` and the device MCP `tools/call`, so that every motion request is
   checked (envelope limits, cooldowns, cliff/obstacle state, an always-available stop) rather
-  than trusted because the model asked nicely. See [safety.md](safety.md).
+  than trusted because the model asked nicely. See [safety-model.md](safety-model.md).
 * **Perception reuses the vision short-circuit.** The `{"action": "RESPONSE", "response": …}`
   convention already implemented for `/mcp/vision/explain` is the lowest-latency
   perceive-and-react path in the codebase; robot perception tools should return the same shape
@@ -520,5 +520,5 @@ tool, with **no validation beyond the JSON Schema the device itself published**.
 * [protocol.md](protocol.md) — the device session and its message types
 * [configuration.md](configuration.md) — config loading and precedence
 * [providers.md](providers.md) — LLM and VLLM provider selection
-* [robot-architecture.md](robot-architecture.md), [safety.md](safety.md) — the planned robot layers
+* [robot-architecture.md](robot-architecture.md), [safety-model.md](safety-model.md) — the planned robot layers
 * [upstream.md](upstream.md) — provenance of the MCP implementation

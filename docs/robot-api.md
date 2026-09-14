@@ -37,7 +37,7 @@ development dashboard. What has **not** changed is where the decision is made:
   import `main/nilo-server/robot/safety/`. A test reads the source and asserts both.
 
 An emergency stop from this API is a **request**. The response says so. The firmware
-watchdog is the guarantee ([safety.md](safety.md)).
+watchdog is the guarantee ([safety-model.md](safety-model.md)).
 
 ## Security
 
@@ -225,6 +225,6 @@ covering every registered route, and the dashboard's panels, controls and token 
 ---
 
 [robot-architecture.md](robot-architecture.md) — why this is its own app on its own port ·
-[safety.md](safety.md) — what a stop from this API is and is not ·
+[safety-model.md](safety-model.md) — what a stop from this API is and is not ·
 [robot-actions.md](robot-actions.md) — the action layer every control request ends at ·
 [robot-memory.md](robot-memory.md) — what the memory endpoints read and delete

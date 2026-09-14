@@ -9,7 +9,7 @@ that can *move a robot* and one gate is not enough for that:
 1. **A token**, compared in constant time, distinct from the device-token signing key. The
    OTA endpoint is unauthenticated and will mint a valid device token for whatever device
    id the caller asks for (``core/api/ota_handler.py``), so "the caller holds a valid
-   device token" authorizes nothing here (docs/safety.md).
+   device token" authorizes nothing here (docs/safety-model.md).
 2. **A bind gate.** Control endpoints are refused outright when the API is listening on
    anything but loopback, unless a deployment has *explicitly* said otherwise. A token
    leaked into a shell history is a token; a robot on a network with no second gate is a

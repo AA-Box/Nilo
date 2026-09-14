@@ -32,6 +32,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from robot.correlation import current_correlation_id
 from robot.state.actions import (
     ActionError,
     ActionPriority,
@@ -157,7 +158,7 @@ class StopAction(ActionSpec):
 
     Stop is the one action that is never queued and never rejected for a hazard: a robot
     that will not stop because a sensor says it is unsafe to move is the wrong failure
-    (docs/safety.md, "Emergency stop"). It still claims :attr:`Resource.DRIVE` so the
+    (docs/safety-model.md, "Emergency stop"). It still claims :attr:`Resource.DRIVE` so the
     ledger stays honest, but the executor dispatches it ahead of the queue.
     """
 
@@ -361,6 +362,7 @@ class RobotAction:
     __slots__ = (
         "_done",
         "action_id",
+        "correlation_id",
         "created_at",
         "device_action_id",
         "error",
@@ -387,6 +389,7 @@ class RobotAction:
         ttl_s: float | None = None,
         action_id: str | None = None,
         created_at: datetime | None = None,
+        correlation_id: str | None = None,
     ) -> None:
         self.spec = spec
         self.robot_id = robot_id
@@ -402,6 +405,12 @@ class RobotAction:
         self.result: dict[str, Any] | None = None
         self.error: ActionError | None = None
         self.device_action_id: str | None = None
+        # The trace in scope when the action was created. Captured here rather than passed
+        # down every call site: the caller is a behaviour, an agent tool or an operator
+        # request, and none of them should have to know tracing exists.
+        self.correlation_id = (
+            current_correlation_id() if correlation_id is None else correlation_id
+        )
         self._done = asyncio.Event()
 
     # -- identity -------------------------------------------------------------------------
@@ -493,6 +502,7 @@ class RobotAction:
             device_action_id=self.device_action_id,
             result=self.result,
             error=self.error,
+            correlation_id=self.correlation_id,
         )
 
     async def wait(self, timeout: float | None = None) -> ActionRecord:

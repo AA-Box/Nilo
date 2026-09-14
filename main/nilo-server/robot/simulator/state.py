@@ -48,6 +48,11 @@ class MotionOutcome(str, Enum):
     BATTERY_EMPTY = "battery_empty"
     SUPERSEDED = "superseded"
     TARGET_LOST = "target_lost"
+    #: The link to the backend died while the robot was moving. Stopping is the *device's*
+    #: decision, taken with nobody to ask (``Nilo-esp32/board/safety_supervisor.h``,
+    #: ``kLinkLost``); the backend usually never hears this notification, because the
+    #: socket it would travel on is the one that died.
+    LINK_LOST = "link_lost"
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +202,14 @@ class RobotSimState:
     def stop(self, detail: str = "stop requested") -> MotionResult | None:
         """Cancel the motion in flight, if any."""
         return self._end_motion(MotionOutcome.CANCELLED, detail)
+
+    def fail_motion(self, outcome: MotionOutcome, detail: str) -> MotionResult | None:
+        """End the motion in flight for a reason that is not a cancellation.
+
+        The device layer needs this for the protections it owns rather than the world
+        does — the link watchdog is the only one today.
+        """
+        return self._end_motion(outcome, detail)
 
     def _end_motion(self, outcome: MotionOutcome, detail: str) -> MotionResult | None:
         if self.motion is None:

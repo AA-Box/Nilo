@@ -70,6 +70,12 @@ class SimulatorConfig:
     duration_s: float = 0.0
     reconnect: bool = True
     reconnect_delay_s: float = 1.0
+    #: How long a dropped link may last mid-motion before the device stops itself, in
+    #: simulated milliseconds. Mirrors the firmware's ``link_grace_ms``
+    #: (``Nilo-esp32/board/safety_supervisor.h``): the backend cannot deliver a stop over
+    #: a socket that is gone, so this is the protection that actually runs. 0 disables it,
+    #: which is only ever useful for a test that wants to watch what happens without it.
+    link_grace_ms: int = 1000
     #: TCP port for the read-only status endpoint. 0 disables it.
     status_port: int = 8090
     status_host: str = "127.0.0.1"
@@ -111,6 +117,8 @@ class SimulatedRobot:
         self._connected = asyncio.Event()
         self._welcomed = asyncio.Event()
         self._motion_results: list[MotionResult] = []
+        #: When the link went away while the robot was moving, in simulated seconds.
+        self._link_lost_at: float | None = None
         self._sent_notifications: list[tuple[str, dict[str, Any]]] = []
         self._fixtures: FixtureCamera | None = (
             FixtureCamera(self.config.camera_fixtures) if self.config.camera_fixtures else None
@@ -177,6 +185,42 @@ class SimulatedRobot:
             "notifications_sent": len(self._sent_notifications),
             "robot": self.state.snapshot(self.world),
         }
+
+    # -- the microphone -------------------------------------------------------------------
+
+    async def say(self, text: str) -> None:
+        """Report recognized speech, the way a device with a microphone does.
+
+        This is the ``listen``/``detect`` frame the inherited session server turns into a
+        conversation turn. The simulator has no audio and no recognizer, so the text is
+        the recognizer's output rather than a model's: the part being simulated is the
+        microphone, and everything the server does with the result is the real path.
+        """
+        self.state.listening = False
+        await self._send({"type": "listen", "mode": "manual", "state": "detect", "text": text})
+
+    async def start_listening(self) -> None:
+        """Open the microphone. ``listen``/``start``, as the device sends it."""
+        self.state.listening = True
+        await self._send({"type": "listen", "mode": "manual", "state": "start"})
+
+    async def interrupt(self) -> None:
+        """Talk over the robot: the ``abort`` frame a device sends on barge-in."""
+        await self._send({"type": "abort"})
+
+    async def send_raw(self, frame: str) -> None:
+        """Send one frame exactly as given, valid or not.
+
+        The simulator is a *well-behaved* device everywhere else, which is what makes it
+        useless for the other half of the question: what the server does with a frame no
+        well-behaved device would send. A test uses this to send truncated JSON, a
+        notification with no parameters, or a response to a request nobody made.
+        """
+        websocket = self._ws
+        if websocket is None:
+            return
+        with contextlib.suppress(Exception):
+            await websocket.send(frame)
 
     # -- the ScenarioHost / ToolHost surface ---------------------------------------------
 
@@ -473,6 +517,7 @@ class SimulatedRobot:
         """
         now = self.clock.now()
         scenario_now = self._scenario_time(now)
+        self._supervise_link(now)
         self._motion_results.extend(self.state.step(dt_s, self.world, motor_failure=self.faults.motor_failure))
         if scenario_now is not None:
             await self._check_disconnect_fault(scenario_now)
@@ -485,6 +530,37 @@ class SimulatedRobot:
         if self.state.moving and now >= self._next_pose:
             self._next_pose = now + self.config.pose_ms / 1000.0
             await self._notify("notifications/pose", self.state.pose_payload())
+
+    def _supervise_link(self, now: float) -> None:
+        """Stop, locally, if the link has been down too long while the robot is moving.
+
+        The one safety rule in this file, and it is here rather than in the backend for
+        the reason the whole design turns on: when the socket is gone there is nobody to
+        ask. The firmware does exactly this (``Nilo-esp32/board/safety_supervisor.h``,
+        ``link_grace_ms``), and a simulator that kept driving into a wall after the
+        network died would be a simulator that tests the wrong robot.
+        """
+        if not self._expects_server:
+            # An offline run has no link to lose: a test driving `step` by hand with a
+            # ManualClock is the robot's own world, not a robot whose network died.
+            return
+        if self.connected:
+            self._link_lost_at = None
+            return
+        if not self.state.moving or self.config.link_grace_ms <= 0:
+            return
+        if self._link_lost_at is None:
+            self._link_lost_at = now
+            return
+        if now - self._link_lost_at < self.config.link_grace_ms / 1000.0:
+            return
+        self._link_lost_at = None
+        logger.warning(
+            "simulator %s: the link has been down for %.1fs while moving; stopping",
+            self.config.robot_id,
+            self.config.link_grace_ms / 1000.0,
+        )
+        self._record(self.state.fail_motion(MotionOutcome.LINK_LOST, "the link to the backend died"))
 
     def _scenario_time(self, now: float) -> float | None:
         """Scenario time, or ``None`` while the timeline is still waiting to start.

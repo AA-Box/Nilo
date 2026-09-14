@@ -40,6 +40,12 @@ logger = logging.getLogger(__name__)
 #: every other attribute robot code adds to the inherited handler.
 LOOP_ATTR = "nilo_robot_voice"
 
+#: Where the inherited ASR path leaves how long recognition took, in milliseconds. Set by
+#: one line in ``core/providers/asr/base.py`` and read here; absent on a session whose
+#: text did not come from the recognizer, which is why the default is zero and zero means
+#: "not measured" (docs/upstream.md).
+ASR_LATENCY_ATTR = "nilo_asr_latency_ms"
+
 #: A device that publishes any of these is a robot, and its session is claimed. A device
 #: that publishes none of them is a speaker with a microphone, and the inherited chat path
 #: is exactly right for it.
@@ -162,7 +168,12 @@ async def handle_utterance(conn: Any, text: str, runtime: Any = None) -> bool:
         speaker = str(getattr(conn, "current_speaker", "") or "")
         person_id = _person_id(speaker)
         task = asyncio.create_task(
-            loop.on_utterance(text, person_id=person_id, speaker=speaker),
+            loop.on_utterance(
+                text,
+                person_id=person_id,
+                speaker=speaker,
+                asr_latency_ms=_asr_latency_ms(conn),
+            ),
             name=f"robot-voice-turn-{loop.robot_id}",
         )
         _TURNS.add(task)
@@ -207,6 +218,14 @@ async def detach(conn: Any) -> None:
 _TURNS: set[asyncio.Task[Any]] = set()
 
 
+def _asr_latency_ms(conn: Any) -> float:
+    """How long recognition took, or ``0.0`` when this session does not measure it."""
+    try:
+        return max(0.0, float(getattr(conn, ASR_LATENCY_ATTR, 0.0) or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _person_id(speaker: str) -> str | None:
     """A person id from whatever the voiceprint layer attributed the utterance to.
 
@@ -218,6 +237,7 @@ def _person_id(speaker: str) -> str | None:
 
 
 __all__ = [
+    "ASR_LATENCY_ATTR",
     "LOOP_ATTR",
     "ROBOT_TOOL_NAMES",
     "ConnectionSpeechSink",

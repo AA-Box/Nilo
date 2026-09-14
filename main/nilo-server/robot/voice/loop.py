@@ -38,6 +38,7 @@ from robot.agent.speech import (
     SpeechDecision,
     SpeechPriority,
 )
+from robot.correlation import correlate, new_correlation_id
 from robot.events.types import SpeechFinished, SpeechStarted, UtteranceRecognized
 from robot.voice.expression import ExpressionCoordinator
 from robot.voice.state import AudioState, VoiceStateMachine
@@ -178,31 +179,46 @@ class VoiceLoop:
     # -- the turn ---------------------------------------------------------------------------------
 
     async def on_utterance(
-        self, text: str, *, person_id: str | None = None, speaker: str = ""
+        self,
+        text: str,
+        *,
+        person_id: str | None = None,
+        speaker: str = "",
+        asr_latency_ms: float = 0.0,
     ) -> AgentTurn | None:
         """Answer something a person said. The main entry point of the whole loop.
 
         Returns the turn, or ``None`` when the arbiter refused — which for a user answer
         only happens when something at :attr:`SpeechPriority.SAFETY` is talking.
+
+        An utterance starts a trace. Everything the turn causes — the model call, the
+        tools it chooses, the actions those become, the device calls and the completions
+        that come back — carries this id, because each of them inherits the context this
+        sets (``robot/correlation.py``).
         """
         if self._closed or not text.strip():
             return None
-        await self._publish(
-            UtteranceRecognized(
-                robot_id=self.robot_id, text=text, person_id=person_id, speaker=speaker
+        with correlate(new_correlation_id()):
+            await self._publish(
+                UtteranceRecognized(
+                    robot_id=self.robot_id,
+                    text=text,
+                    person_id=person_id,
+                    speaker=speaker,
+                    latency_ms=asr_latency_ms,
+                )
             )
-        )
-        intent = SpeakIntent(
-            reason=ANSWER_REASON,
-            priority=SpeechPriority.USER_RESPONSE,
-            target_person_id=person_id,
-            prompt=text,
-        )
-        decision = await self.arbiter.request(intent, wait=True)
-        if not decision.accepted:
-            logger.info("robot %s: not answering — %s", self.robot_id, decision.reason)
-            return None
-        return self.last_turn
+            intent = SpeakIntent(
+                reason=ANSWER_REASON,
+                priority=SpeechPriority.USER_RESPONSE,
+                target_person_id=person_id,
+                prompt=text,
+            )
+            decision = await self.arbiter.request(intent, wait=True)
+            if not decision.accepted:
+                logger.info("robot %s: not answering — %s", self.robot_id, decision.reason)
+                return None
+            return self.last_turn
 
     async def speak(self, intent: SpeakIntent) -> SpeechDecision:
         """Say something nobody asked for: a behaviour's greeting, a safety warning."""

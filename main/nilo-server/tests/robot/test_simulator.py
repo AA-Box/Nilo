@@ -735,3 +735,46 @@ def test_the_status_payload_names_everything_a_human_needs() -> None:
     assert set(status["robot"]) >= {"pose", "battery", "sensors"}
     assert status["scenario"]["name"] == "idle"
     assert "camera_failure" in status["faults"]
+
+
+# -- the link watchdog ------------------------------------------------------------------------
+
+
+async def test_a_dropped_link_stops_the_robot_after_the_grace_period() -> None:
+    """The one protection the *device* owns here, because the backend cannot deliver a stop.
+
+    Mirrors the firmware's ``link_grace_ms`` (``Nilo-esp32/board/safety_supervisor.h``). A
+    simulator that kept driving after the network died would be a simulator that tests the
+    wrong robot, and scenario J of the end-to-end suite asserts the same thing over a real
+    socket.
+    """
+    robot = offline(link_grace_ms=1000)
+    robot._expects_server = True  # the flag a session sets; an offline run has no link to lose
+    robot.command_move(2000, 200)
+    assert robot.state.moving
+
+    await drive(robot, 0.5)
+    assert robot.state.moving, "the grace period ended the motion too early"
+
+    await drive(robot, 1.0)
+    assert not robot.state.moving
+    # The device tried to report it. Nobody heard, because the socket is the thing that died
+    # — which is exactly why the stop had to be the device's decision.
+    failures = [params for method, params in robot.notifications if method.endswith("motion_failed")]
+    assert failures and failures[-1]["reason"] == MotionOutcome.LINK_LOST.value
+
+
+async def test_an_offline_run_has_no_link_to_lose() -> None:
+    """A manual-clock test driving `step` by hand is the robot's own world, not a dropped link."""
+    robot = offline(link_grace_ms=1000)
+    robot.command_move(2000, 200)
+    await drive(robot, 3.0)
+    assert robot.state.moving
+
+
+async def test_the_link_watchdog_can_be_turned_off() -> None:
+    robot = offline(link_grace_ms=0)
+    robot._expects_server = True
+    robot.command_move(2000, 200)
+    await drive(robot, 3.0)
+    assert robot.state.moving
